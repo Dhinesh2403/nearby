@@ -1,4 +1,6 @@
 export const environment = {
-  production: false,
-  apiUrl: 'https://staging-api.onrender.com/api'
+  production: true,
+  apiUrl: 'https://nearby-staging.up.railway.app/api',
+  socketUrl: 'https://nearby-staging.up.railway.app/api',
+  appName: 'NearBy',
 };
