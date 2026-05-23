@@ -45,8 +45,8 @@
                 },
                 {
                   "type": "anyComponentStyle",
-                  "maximumWarning": "5Mb",
-                  "maximumError": "6MB"
+                  "maximumWarning": "5mb",
+                  "maximumError": "6mb"
                 }
               ],
               "outputHashing": "all",
@@ -61,12 +61,12 @@
               "budgets": [
                 {
                   "type": "initial",
-                  "maximumWarning": "5Mb",
+                  "maximumWarning": "5mb",
                   "maximumError": "10mb"
                 },
                 {
                   "type": "anyComponentStyle",
-                  "maximumWarning": "5Mb",
+                  "maximumWarning": "5mb",
                   "maximumError": "6mb"
                 }
               ],
