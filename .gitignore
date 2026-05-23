@@ -1,0 +1,13 @@
+node_modules/
+.env
+*.log
+dist/
+.angular/
+coverage/
+playwright-report/
+test-results/
+.DS_Store
+Thumbs.db
+*.zip
+README.md
+SETUP_GUIDE.md
