@@ -1,7 +1,7 @@
 // src/routes/reviews.js
 const router = require('express').Router();
 const { Review, Booking, Provider, User } = require('../models');
-const { ok, fail }           = require('../utils/helpers');
+const { ok, fail, pushNotify } = require('../utils/helpers');
 const { protect, authorize } = require('../middleware/auth');
 
 // GET /api/reviews/provider/:id — reviews for a provider
@@ -17,7 +17,7 @@ router.get('/provider/:id', async (req, res, next) => {
 // POST /api/reviews — customer submits after completed booking
 router.post('/', protect, authorize('customer'), async (req, res, next) => {
   try {
-    const { bookingId, rating, review, tags } = req.body;
+    const { bookingId, rating, review, tags, images } = req.body;
     if (!bookingId || !rating)
       return fail(res, 'bookingId and rating are required.');
 
@@ -36,6 +36,7 @@ router.post('/', protect, authorize('customer'), async (req, res, next) => {
       customerId: req.user._id,
       providerId: booking.providerId,
       rating, review: review || '', tags: tags || [],
+      images: Array.isArray(images) ? images : [],
     });
 
     // Recalculate provider rating average
@@ -49,6 +50,15 @@ router.post('/', protect, authorize('customer'), async (req, res, next) => {
         ratingCount: stats[0].count,
       });
     }
+
+    // Notify the provider (live toast + bell badge)
+    const provider = await Provider.findById(booking.providerId);
+    await pushNotify(req.app.locals.io, provider?.userId, {
+      type:  'review',
+      title: `New ${rating}★ review`,
+      body:  (review && review.trim()) ? `"${review.trim().slice(0, 80)}"` : 'A customer reviewed your service.',
+      link:  '/dashboard/provider',
+    });
 
     res.status(201).json({ success: true, message: 'Review submitted.', data: r });
   } catch (e) { next(e); }
@@ -87,13 +97,14 @@ complaintRouter.get('/', protect, async (req, res, next) => {
 
 complaintRouter.post('/', protect, async (req, res, next) => {
   try {
-    const { against, bookingId, type, description } = req.body;
+    const { against, bookingId, type, description, evidence } = req.body;
     if (!against || !type || !description)
       return fail(res, 'against, type and description are required.');
     const c = await Complaint.create({
       raisedBy: req.user._id,
       against, bookingId: bookingId || null,
       type, description,
+      evidence: Array.isArray(evidence) ? evidence : [],
     });
     res.status(201).json({ success: true, message: 'Complaint submitted.', data: c });
   } catch (e) { next(e); }

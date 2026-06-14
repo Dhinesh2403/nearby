@@ -10,6 +10,7 @@ const rateLimit = require('express-rate-limit');
 const authRoutes     = require('./routes/auth');
 const providerRoutes = require('./routes/providers');
 const bookingRoutes  = require('./routes/bookings');
+const chatRoutes     = require('./routes/chats');
 const { reviewRouter, complaintRouter, notifRouter, adminRouter } = require('./routes/extras');
 
 const app = express();
@@ -22,8 +23,9 @@ app.use(cors({
 }));
 
 // ── BODY PARSING ─────────────────────────────────────────────
-app.use(express.json({ limit: '10kb' }));
-app.use(express.urlencoded({ extended: true }));
+// Limit raised to allow base64 image evidence on complaints.
+app.use(express.json({ limit: '8mb' }));
+app.use(express.urlencoded({ extended: true, limit: '8mb' }));
 
 // ── RATE LIMITING ─────────────────────────────────────────────
 app.use('/api', rateLimit({
@@ -41,6 +43,7 @@ app.get('/health', (_, res) =>
 app.use('/api/auth',          authRoutes);
 app.use('/api/providers',     providerRoutes);
 app.use('/api/bookings',      bookingRoutes);
+app.use('/api/chats',         chatRoutes);
 app.use('/api/reviews',       reviewRouter);
 app.use('/api/complaints',    complaintRouter);
 app.use('/api/notifications', notifRouter);

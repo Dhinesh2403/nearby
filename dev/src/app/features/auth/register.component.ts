@@ -5,6 +5,7 @@ import { FormsModule }     from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
 import { AuthService }     from '../../core/auth/auth.service';
 import { ToastService }    from '../../core/services/toast.service';
+import { DISTRICTS }       from '../../core/constants';
 
 @Component({
   selector: 'app-register',
@@ -53,6 +54,22 @@ import { ToastService }    from '../../core/services/toast.service';
             <input type="tel" class="nb-input" [(ngModel)]="form.phone"
                    placeholder="10-digit mobile number" maxlength="10" />
           </div>
+          <div class="row g-2 mb-3">
+            <div class="col-6">
+              <label class="nb-label">District</label>
+              <select class="nb-input" [(ngModel)]="form.district">
+                <option value="" disabled>Select district</option>
+                @for (d of districts; track d) { <option [value]="d">{{ d }}</option> }
+              </select>
+            </div>
+            <div class="col-6">
+              <label class="nb-label">Area / Location</label>
+              <input type="text" class="nb-input" [(ngModel)]="form.area" placeholder="e.g. Anna Nagar" />
+            </div>
+          </div>
+          <p style="font-size:.72rem;color:var(--nb-text-muted);margin:-8px 0 12px">
+            <i class="bi bi-geo-alt me-1"></i>District is used to match you with nearby offline services.
+          </p>
           <div class="mb-3">
             <label class="nb-label">Password</label>
             <input type="password" class="nb-input" [(ngModel)]="form.password"
@@ -108,7 +125,8 @@ import { ToastService }    from '../../core/services/toast.service';
   `]
 })
 export class RegisterComponent {
-  form    = { name:'', email:'', phone:'', password:'', role:'customer' };
+  form    = { name:'', email:'', phone:'', password:'', role:'customer', district:'', area:'' };
+  districts = DISTRICTS;
   loading = signal(false);
   error   = signal('');
 
@@ -116,8 +134,9 @@ export class RegisterComponent {
 
   doRegister() {
     this.error.set('');
-    const { name, email, phone, password } = this.form;
+    const { name, email, phone, password, district } = this.form;
     if (!name || !email || !phone || !password) { this.error.set('All fields are required.'); return; }
+    if (!district) { this.error.set('Please select your district.'); return; }
     if (password.length < 8) { this.error.set('Password must be at least 8 characters.'); return; }
     if (!/^[6-9]\d{9}$/.test(phone)) { this.error.set('Enter a valid 10-digit Indian mobile number.'); return; }
 

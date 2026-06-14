@@ -5,9 +5,10 @@ import { FormsModule }   from '@angular/forms';
 import { RouterLink, ActivatedRoute } from '@angular/router';
 import { AuthService }   from '../../core/auth/auth.service';
 import { SocketService } from '../../core/services/api.service';
+import { ChatService }   from '../../core/services/chat.service';
 import { Subscription }  from 'rxjs';
 
-interface Msg { id:string; senderId:string; senderName:string; text:string; ts:Date; mine:boolean; }
+interface Msg { id:string; senderId:string; senderName:string; text:string; image?:string; ts:Date; mine:boolean; seen?:boolean; }
 
 @Component({
   selector: 'app-chat',
@@ -18,7 +19,7 @@ interface Msg { id:string; senderId:string; senderName:string; text:string; ts:D
       <!-- Header -->
       <div class="chat-hdr">
         <div class="container d-flex align-items-center gap-3">
-          <a routerLink="/dashboard/customer" class="back-btn"><i class="bi bi-arrow-left"></i></a>
+          <a [routerLink]="backLink" class="back-btn"><i class="bi bi-arrow-left"></i></a>
           <div class="ch-av">{{ otherName.charAt(0) }}</div>
           <div class="flex-grow-1">
             <p class="ch-name">{{ otherName }}</p>
@@ -35,8 +36,17 @@ interface Msg { id:string; senderId:string; senderName:string; text:string; ts:D
             <div class="msg-row" [class.mine]="m.mine">
               @if (!m.mine) { <div class="msg-av">{{ m.senderName.charAt(0) }}</div> }
               <div class="bubble" [class.mine]="m.mine">
-                <p class="bbl-txt">{{ m.text }}</p>
-                <span class="bbl-ts">{{ fmtTime(m.ts) }}</span>
+                @if (m.image) {
+                  <img class="bbl-img" [src]="m.image" alt="attachment" (click)="lightbox.set(m.image!)" />
+                }
+                @if (m.text) { <p class="bbl-txt">{{ m.text }}</p> }
+                <span class="bbl-ts">
+                  {{ fmtTime(m.ts) }}
+                  @if (m.mine) {
+                    <i class="bi ms-1" [class.bi-check2]="!m.seen" [class.bi-check2-all]="m.seen"
+                       [style.color]="m.seen ? '#34B7F1' : 'rgba(255,255,255,.6)'"></i>
+                  }
+                </span>
               </div>
             </div>
           }
@@ -52,16 +62,33 @@ interface Msg { id:string; senderId:string; senderName:string; text:string; ts:D
       <!-- Input -->
       <div class="chat-input-bar">
         <div class="container">
+          @if (pendingImage()) {
+            <div class="img-preview">
+              <img [src]="pendingImage()" alt="to send" />
+              <button class="ip-del" (click)="pendingImage.set('')"><i class="bi bi-x"></i></button>
+              <span class="ip-lbl">Photo ready to send</span>
+            </div>
+          }
           <div class="ci-inner">
+            <button class="attach-btn" (click)="fi.click()" title="Attach photo / payment screenshot">
+              <i class="bi bi-paperclip"></i>
+            </button>
+            <input #fi type="file" hidden accept="image/*" (change)="onAttach($event)" />
             <input type="text" class="ci-input" [(ngModel)]="newMsg"
                    placeholder="Type a message..." (keyup.enter)="send()" />
-            <button class="send-btn" (click)="send()" [disabled]="!newMsg.trim()">
+            <button class="send-btn" (click)="send()" [disabled]="!newMsg.trim() && !pendingImage()">
               <i class="bi bi-send-fill"></i>
             </button>
           </div>
         </div>
       </div>
     </div>
+
+    @if (lightbox()) {
+      <div class="chat-lightbox" (click)="lightbox.set(null)">
+        <img [src]="lightbox()" alt="attachment" />
+      </div>
+    }
   `,
   styles: [`
     .chat-wrap { display:flex; flex-direction:column; height:calc(100vh - 65px); background:var(--nb-bg); }
@@ -96,33 +123,80 @@ interface Msg { id:string; senderId:string; senderName:string; text:string; ts:D
     .send-btn { width:36px; height:36px; background:var(--nb-primary); border:none; border-radius:50%; color:#fff; cursor:pointer; display:flex; align-items:center; justify-content:center; transition:all .2s; }
     .send-btn:hover:not(:disabled) { background:var(--nb-primary-light); }
     .send-btn:disabled { opacity:.4; cursor:not-allowed; }
+    .bbl-img { max-width:220px; max-height:260px; border-radius:12px; display:block; margin-bottom:6px; cursor:pointer; }
+    .bbl-ts { display:inline-flex; align-items:center; }
+    .attach-btn { background:none; border:none; color:var(--nb-text-muted); font-size:1.1rem; cursor:pointer; display:flex; align-items:center; padding:0 4px; }
+    .attach-btn:hover { color:var(--nb-primary); }
+    .img-preview { position:relative; display:inline-flex; align-items:center; gap:10px; background:var(--nb-surface-2); border:1px solid var(--nb-border); border-radius:12px; padding:8px 12px 8px 8px; margin-bottom:8px; }
+    .img-preview img { width:48px; height:48px; object-fit:cover; border-radius:8px; }
+    .ip-lbl { font-size:.8rem; color:var(--nb-text-muted); }
+    .ip-del { position:absolute; top:-6px; left:42px; width:20px; height:20px; border:none; border-radius:50%; background:var(--nb-danger); color:#fff; font-size:.7rem; cursor:pointer; display:flex; align-items:center; justify-content:center; }
+    .chat-lightbox { position:fixed; inset:0; background:rgba(0,0,0,.85); z-index:10000; display:flex; align-items:center; justify-content:center; padding:2rem; cursor:zoom-out; }
+    .chat-lightbox img { max-width:92vw; max-height:92vh; border-radius:12px; }
   `]
 })
 export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
   @ViewChild('scrollRef') scrollRef!: ElementRef;
-  messages = signal<Msg[]>([
-    { id:'1', senderId:'sys', senderName:'Rajan', text:'Hello! I received your booking request. I can come as scheduled.', ts:new Date(Date.now()-600000), mine:false },
-    { id:'2', senderId:'me',  senderName:'Me',    text:'Great! Please bring the necessary tools.', ts:new Date(Date.now()-300000), mine:true },
-    { id:'3', senderId:'sys', senderName:'Rajan', text:'Will do! See you then. 🔧', ts:new Date(Date.now()-60000), mine:false },
-  ]);
-  newMsg    = '';
-  typing    = signal(false);
-  otherName = 'Rajan Plumbing Works';
-  private sub?: Subscription;
-  private bookingId = '';
+  messages     = signal<Msg[]>([]);
+  newMsg       = '';
+  typing       = signal(false);
+  pendingImage = signal('');
+  lightbox     = signal<string | null>(null);
+  otherName    = 'Conversation';
+  backLink     = '/chats';
+  private subs: Subscription[] = [];
+  private convId = '';
 
-  constructor(private route: ActivatedRoute, public auth: AuthService, private socket: SocketService) {}
+  constructor(
+    private route: ActivatedRoute,
+    public  auth:  AuthService,
+    private chat:  ChatService,
+    private socket: SocketService,
+  ) {}
+
+  private get myId() { return this.auth.currentUser()?._id ?? ''; }
 
   ngOnInit() {
-    this.bookingId = this.route.snapshot.paramMap.get('bookingId') ?? 'demo';
+    this.convId   = this.route.snapshot.paramMap.get('conversationId') ?? '';
+    this.backLink = '/chats';
+    this.chat.enterConversation(this.convId);   // suppress toast/badge while viewing
+    this.reload(true);
+
     const token = this.auth.getAccessToken() ?? '';
     this.socket.connect(token);
-    this.socket.joinRoom(this.bookingId, this.auth.currentUser()?._id ?? '');
-    this.sub = this.socket.onMessage().subscribe((m: any) => {
-      if (m.senderId !== this.auth.currentUser()?._id) {
-        const msg: Msg = { id:Date.now().toString(), senderId:m.senderId, senderName:m.senderName, text:m.text, ts:new Date(m.timestamp), mine:false };
-        this.messages.update(msgs => [...msgs, msg]);
-      }
+    this.socket.joinRoom(this.convId, this.myId);
+
+    // Incoming message (server broadcasts the saved message to the room)
+    this.subs.push(this.socket.onMessage().subscribe((m: any) => {
+      if (m.conversationId && m.conversationId !== this.convId) return;
+      if (m.senderId === this.myId) return;                       // ignore our own echo
+      this.messages.update(msgs => [...msgs, {
+        id: m._id ?? Date.now().toString(), senderId: m.senderId, senderName: m.senderName,
+        text: m.text, image: m.image, ts: new Date(m.createdAt ?? Date.now()), mine: false,
+      }]);
+      // We're viewing → mark read (server then emits "seen" to the sender) + refresh badge
+      this.chat.loadMessages(this.convId).subscribe({ next: () => this.chat.refreshUnread() });
+    }));
+
+    // The other side read our messages → flip ticks to "seen"
+    this.subs.push(this.socket.onSeen().subscribe((p: any) => {
+      if (p.by === this.myId) return;
+      this.messages.update(msgs => msgs.map(x => x.mine ? { ...x, seen: true } : x));
+    }));
+  }
+
+  private reload(initial = false) {
+    this.chat.loadMessages(this.convId).subscribe({
+      next: data => {
+        if (data.otherName) this.otherName = data.otherName;
+        this.messages.set((data.messages ?? []).map(m => ({
+          id: m._id, senderId: m.senderId, senderName: m.senderName,
+          text: m.text, image: m.image, ts: new Date(m.createdAt),
+          mine: m.senderId === this.myId, seen: !!m.isRead,
+        })));
+        this.chat.refreshUnread();
+      },
+      error: () => { if (initial) this.messages.set([]); },
     });
   }
 
@@ -130,25 +204,36 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
     try { const e = this.scrollRef?.nativeElement; if(e) e.scrollTop = e.scrollHeight; } catch(_) {}
   }
 
+  onAttach(e: Event) {
+    const el = e.target as HTMLInputElement;
+    const f = el.files?.[0];
+    if (!f) return;
+    if (f.size > 5 * 1024 * 1024) { alert('Image is over 5 MB.'); el.value = ''; return; }
+    const reader = new FileReader();
+    reader.onload = () => this.pendingImage.set(reader.result as string);
+    reader.readAsDataURL(f);
+    el.value = '';
+  }
+
   send() {
-    const t = this.newMsg.trim();
-    if (!t) return;
+    const t   = this.newMsg.trim();
+    const img = this.pendingImage();
+    if ((!t && !img) || !this.convId) return;
     const user = this.auth.currentUser();
-    const msg: Msg = { id:Date.now().toString(), senderId:user?._id??'me', senderName:user?.name??'Me', text:t, ts:new Date(), mine:true };
-    this.messages.update(msgs => [...msgs, msg]);
-    this.socket.sendMsg(this.bookingId, user?._id??'me', user?.name??'Me', t);
+    // Optimistic bubble
+    this.messages.update(msgs => [...msgs, {
+      id: Date.now().toString(), senderId: this.myId, senderName: user?.name ?? 'Me',
+      text: t, image: img || undefined, ts: new Date(), mine: true, seen: false,
+    }]);
+    // Persist; the server broadcasts to the other participant (incl. image)
+    this.chat.send(this.convId, t, img).subscribe({ error: () => {} });
     this.newMsg = '';
-    // Simulate reply in demo mode
-    if (this.bookingId === 'demo-booking') {
-      this.typing.set(true);
-      setTimeout(() => {
-        this.typing.set(false);
-        const reply: Msg = { id:(Date.now()+1).toString(), senderId:'sys', senderName:this.otherName, text:'Understood! I will keep that in mind.', ts:new Date(), mine:false };
-        this.messages.update(msgs => [...msgs, reply]);
-      }, 1500);
-    }
+    this.pendingImage.set('');
   }
 
   fmtTime(d: Date) { return d.toLocaleTimeString('en-IN', { hour:'2-digit', minute:'2-digit' }); }
-  ngOnDestroy() { this.sub?.unsubscribe(); }
+  ngOnDestroy() {
+    this.chat.leaveConversation(this.convId);
+    this.subs.forEach(s => s.unsubscribe());
+  }
 }

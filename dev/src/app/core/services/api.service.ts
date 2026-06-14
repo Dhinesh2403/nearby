@@ -51,6 +51,7 @@ export interface Provider {
   ratingCount:  number;
   totalBookings:number;
   price:        number;
+  priceMax?:    number;
   status:       string;
   availability: { days: string[]; startTime: string; endTime: string };
 }
@@ -101,7 +102,7 @@ export class ToastService {
   toasts = signal<Toast[]>([]);
   private next = 0;
 
-  show(message: string, type: Toast['type'] = 'success', duration = 3500) {
+  show(message: string, type: Toast['type'] = 'success', duration = 5000) {
     const id = ++this.next;
     this.toasts.update(t => [...t, { id, message, type }]);
     setTimeout(() => this.toasts.update(t => t.filter(x => x.id !== id)), duration);
@@ -123,6 +124,7 @@ import { io, Socket } from 'socket.io-client';
 @Injectable({ providedIn: 'root' })
 export class SocketService implements OnDestroy {
   private socket: Socket | null = null;
+  private userRoomId = '';
 
   connect(token: string) {
     if (this.socket?.connected) return;
@@ -131,12 +133,16 @@ export class SocketService implements OnDestroy {
       reconnectionAttempts:  5,
       reconnectionDelay:     2000,
     });
-    this.socket.on('connect',       () => console.log('🟢 Socket connected'));
+    this.socket.on('connect', () => {
+      console.log('🟢 Socket connected');
+      // Re-join the personal room after (re)connect so live updates keep working
+      if (this.userRoomId) this.socket?.emit('join_user_room', { userId: this.userRoomId });
+    });
     this.socket.on('disconnect',    () => console.log('🔴 Socket disconnected'));
     this.socket.on('connect_error', (e: any) => console.warn('Socket error', e.message));
   }
 
-  disconnect() { this.socket?.disconnect(); this.socket = null; }
+  disconnect() { this.userRoomId = ''; this.socket?.disconnect(); this.socket = null; }
 
   emit(event: string, data: any) { this.socket?.emit(event, data); }
 
@@ -148,10 +154,16 @@ export class SocketService implements OnDestroy {
   }
 
   joinRoom(bookingId: string, userId: string) { this.emit('join_room', { bookingId, userId }); }
+  // Personal room — lets the server push live updates (e.g. unread badge)
+  joinUserRoom(userId: string) { this.userRoomId = userId; this.emit('join_user_room', { userId }); }
   sendMsg(bookingId: string, senderId: string, senderName: string, text: string) {
     this.emit('send_message', { bookingId, senderId, senderName, text });
   }
+  markSeen(roomId: string, userId: string) { this.emit('mark_seen', { roomId, userId }); }
   onMessage()       { return this.on<any>('receive_message'); }
+  onSeen()          { return this.on<any>('messages_seen'); }
+  onChatNew()       { return this.on<any>('chat:new'); }
+  onNotifyNew()     { return this.on<any>('notify:new'); }
   onBookingUpdate() { return this.on<any>('booking_update');  }
 
   ngOnDestroy() { this.disconnect(); }

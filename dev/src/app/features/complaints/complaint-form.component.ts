@@ -1,9 +1,9 @@
 // src/app/features/complaints/complaint-form.component.ts
-import { Component, signal } from '@angular/core';
+import { Component, OnInit, signal } from '@angular/core';
 import { CommonModule }  from '@angular/common';
 import { FormsModule }   from '@angular/forms';
 import { RouterLink }    from '@angular/router';
-import { ApiService }    from '../../core/services/api.service';
+import { ApiService, Booking, ApiResponse } from '../../core/services/api.service';
 import { AuthService }   from '../../core/auth/auth.service';
 import { ToastService }  from '../../core/services/toast.service';
 
@@ -26,6 +26,30 @@ import { ToastService }  from '../../core/services/toast.service';
         </div>
       } @else {
         <div class="form-card">
+
+          <div class="mb-3">
+            <label class="nb-label">Which booking is this about?</label>
+            @if (loadingBookings()) {
+              <p class="text-muted-nb" style="font-size:.85rem">Loading your bookings…</p>
+            } @else if (bookings().length === 0) {
+              <div class="info-note mb-0">
+                <i class="bi bi-info-circle-fill"></i>
+                <p>You have no bookings yet, so there's no provider to complain about. Book a service first.</p>
+              </div>
+            } @else {
+              <select class="nb-input" [(ngModel)]="selectedBookingId" (ngModelChange)="onBookingChange()"
+                      data-testid="complaint-booking-select">
+                <option value="" disabled>Select the provider / service…</option>
+                @for (b of bookings(); track b._id) {
+                  <option [value]="b._id">
+                    {{ b.providerId?.businessName || 'Provider' }}
+                    @if (b.serviceId?.title) { — {{ b.serviceId?.title }} }
+                    · {{ b.scheduledDate | date:'dd MMM yyyy' }}
+                  </option>
+                }
+              </select>
+            }
+          </div>
 
           <div class="mb-3">
             <label class="nb-label">Complaint Type</label>
@@ -54,10 +78,15 @@ import { ToastService }  from '../../core/services/toast.service';
               <p>Click to upload photos or PDF</p>
               <span>JPG, PNG or PDF · Max 5 MB</span>
             </div>
-            @if (files().length>0) {
-              <div class="file-list">
-                @for (f of files(); track f.name) {
-                  <div class="fi-item"><i class="bi bi-file-earmark-image"></i>{{ f.name }}</div>
+            @if (evidence().length>0) {
+              <div class="ev-grid">
+                @for (e of evidence(); track $index) {
+                  <div class="ev-thumb">
+                    <img [src]="e" alt="evidence" />
+                    <button type="button" class="ev-del" (click)="removeEvidence($index)">
+                      <i class="bi bi-x"></i>
+                    </button>
+                  </div>
                 }
               </div>
             }
@@ -93,9 +122,10 @@ import { ToastService }  from '../../core/services/toast.service';
     .upload-zone i { font-size:2rem;color:var(--nb-text-muted);display:block;margin-bottom:.5rem; }
     .upload-zone p { margin:0 0 4px;font-weight:600;font-size:.9rem; }
     .upload-zone span { font-size:.75rem;color:var(--nb-text-muted); }
-    .file-list { display:flex;flex-direction:column;gap:6px;margin-top:10px; }
-    .fi-item { display:flex;align-items:center;gap:8px;background:var(--nb-surface-2);border-radius:var(--radius-sm);padding:6px 10px;font-size:.8rem; }
-    .fi-item i { color:var(--nb-primary); }
+    .ev-grid { display:flex;flex-wrap:wrap;gap:10px;margin-top:12px; }
+    .ev-thumb { position:relative;width:80px;height:80px;border-radius:var(--radius-md);overflow:hidden;border:1px solid var(--nb-border); }
+    .ev-thumb img { width:100%;height:100%;object-fit:cover; }
+    .ev-del { position:absolute;top:2px;right:2px;width:20px;height:20px;border:none;border-radius:50%;background:rgba(0,0,0,.6);color:#fff;font-size:.7rem;display:flex;align-items:center;justify-content:center;cursor:pointer; }
     .err-box { background:#FEE2E2;color:#991b1b;border-radius:var(--radius-md);padding:10px 14px;font-size:.875rem;margin-bottom:12px; }
     .info-note { display:flex;gap:10px;align-items:flex-start;background:#FEF3C7;border-radius:var(--radius-md);padding:12px; }
     .info-note i { color:var(--nb-warning);margin-top:2px; }
@@ -106,9 +136,12 @@ import { ToastService }  from '../../core/services/toast.service';
     .ref-box { background:var(--nb-surface-2);border-radius:var(--radius-md);padding:10px 20px;display:inline-block;font-size:.875rem;color:var(--nb-text-muted);margin-top:.5rem; }
   `]
 })
-export class ComplaintFormComponent {
+export class ComplaintFormComponent implements OnInit {
   form = { type:'', description:'' };
-  files     = signal<File[]>([]);
+  bookings        = signal<Booking[]>([]);
+  loadingBookings = signal(true);
+  selectedBookingId = '';
+  evidence  = signal<string[]>([]);     // base64 data URLs
   loading   = signal(false);
   error     = signal('');
   submitted = signal(false);
@@ -124,28 +157,61 @@ export class ComplaintFormComponent {
 
   constructor(private api: ApiService, private auth: AuthService, private toast: ToastService) {}
 
+  ngOnInit() {
+    // Load the customer's bookings so they can pick the provider/service
+    this.api.get<ApiResponse<Booking[]>>('/bookings').subscribe({
+      next: res => { this.bookings.set(res.data ?? []); this.loadingBookings.set(false); },
+      error: () => this.loadingBookings.set(false),
+    });
+  }
+
+  onBookingChange() { /* selection drives `against` on submit */ }
+
+  // Resolve the provider's USER id from the chosen booking
+  private resolveAgainst(): string {
+    const b = this.bookings().find(x => x._id === this.selectedBookingId);
+    const provUser = b?.providerId?.userId;
+    return typeof provUser === 'string' ? provUser : (provUser?._id ?? '');
+  }
+
   onFile(e: Event) {
     const el = e.target as HTMLInputElement;
-    if (el.files) this.files.set(Array.from(el.files));
+    if (!el.files) return;
+    Array.from(el.files).forEach(f => {
+      if (f.size > 5 * 1024 * 1024) { this.toast.error(`${f.name} is over 5 MB.`); return; }
+      if (!f.type.startsWith('image/')) { this.toast.error('Only images can be previewed.'); return; }
+      const reader = new FileReader();
+      reader.onload = () => this.evidence.update(list => [...list, reader.result as string]);
+      reader.readAsDataURL(f);
+    });
+    el.value = '';
+  }
+
+  removeEvidence(i: number) {
+    this.evidence.update(list => list.filter((_, idx) => idx !== i));
   }
 
   submit() {
     this.error.set('');
+    if (!this.selectedBookingId) { this.error.set('Please select the booking this is about.'); return; }
     if (!this.form.type) { this.error.set('Please select a complaint type.'); return; }
     if (this.form.description.trim().length < 20) { this.error.set('Please describe in at least 20 characters.'); return; }
+
+    const against = this.resolveAgainst();
+    if (!against) { this.error.set('Could not identify the provider for this booking.'); return; }
+
     this.loading.set(true);
-    // Use a placeholder "against" userId — in production resolve from booking selection
-    const payload = {
+    this.api.post<any>('/complaints', {
       type:        this.form.type,
       description: this.form.description,
-      against:     this.auth.currentUser()?._id ?? '', // placeholder
-    };
-    this.api.post<any>('/complaints', payload).subscribe({
+      against,
+      bookingId:   this.selectedBookingId,
+      evidence:    this.evidence(),
+    }).subscribe({
       next: () => { this.loading.set(false); this.submitted.set(true); },
       error: (err) => {
         this.loading.set(false);
-        // Show success anyway so UX isn't broken without a real "against" userId
-        this.submitted.set(true);
+        this.error.set(err.error?.message ?? 'Could not submit complaint. Please try again.');
       },
     });
   }

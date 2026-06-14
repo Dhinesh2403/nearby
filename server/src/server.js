@@ -18,6 +18,7 @@ const io = new Server(httpServer, {
     origin: process.env.CLIENT_URL || 'http://localhost:4200',
     methods: ['GET', 'POST'],
   },
+  maxHttpBufferSize: 1e7,   // 10 MB — allow image attachments over the socket
 });
 
 socketHandler(io);

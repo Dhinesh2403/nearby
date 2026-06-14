@@ -1,0 +1,27 @@
+// src/app/core/constants.ts
+// Districts used for offline service matching. (Tamil Nadu — extend as needed.)
+export const DISTRICTS: string[] = [
+  'Chennai',
+  'Chengalpattu',
+  'Coimbatore',
+  'Cuddalore',
+  'Dindigul',
+  'Erode',
+  'Kanchipuram',
+  'Kanyakumari',
+  'Karur',
+  'Madurai',
+  'Nagapattinam',
+  'Namakkal',
+  'Salem',
+  'Thanjavur',
+  'Theni',
+  'Thoothukudi',
+  'Tiruchirappalli',
+  'Tirunelveli',
+  'Tiruppur',
+  'Tiruvallur',
+  'Vellore',
+  'Villupuram',
+  'Virudhunagar',
+];

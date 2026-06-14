@@ -4,20 +4,19 @@
 require('dotenv').config({ path: require('path').join(__dirname, '../../.env') });
 
 const mongoose = require('mongoose');
-const bcrypt   = require('bcrypt');
 const { User, Provider, Service, Booking, Review } = require('../models');
 
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/nearby';
 
 // ── SEED DATA ─────────────────────────────────────────────────
 const users = [
-  { name: 'Arjun Kumar',   email: 'customer@test.com', phone: '9000000001', password: 'Test@1234',  role: 'customer' },
-  { name: 'Rajan Kumar',   email: 'provider@test.com', phone: '9000000002', password: 'Test@1234',  role: 'provider' },
-  { name: 'Priya Sharma',  email: 'priya@test.com',    phone: '9000000003', password: 'Test@1234',  role: 'provider' },
-  { name: 'Amma Lakshmi',  email: 'amma@test.com',     phone: '9000000004', password: 'Test@1234',  role: 'provider' },
-  { name: 'Karthik Raj',   email: 'karthik@test.com',  phone: '9000000005', password: 'Test@1234',  role: 'provider' },
-  { name: 'Sunita Devi',   email: 'sunita@test.com',   phone: '9000000006', password: 'Test@1234',  role: 'provider' },
-  { name: 'Admin User',    email: 'admin@test.com',    phone: '9000000099', password: 'Admin@1234', role: 'admin' },
+  { name: 'Arjun Kumar',   email: 'customer@test.com', phone: '9000000001', password: 'Test@1234',  role: 'customer', district: 'Chennai',     area: 'Anna Nagar' },
+  { name: 'Rajan Kumar',   email: 'provider@test.com', phone: '9000000002', password: 'Test@1234',  role: 'provider', district: 'Chennai',     area: 'Anna Nagar' },
+  { name: 'Priya Sharma',  email: 'priya@test.com',    phone: '9000000003', password: 'Test@1234',  role: 'provider', district: 'Chennai',     area: 'T. Nagar'   },
+  { name: 'Amma Lakshmi',  email: 'amma@test.com',     phone: '9000000004', password: 'Test@1234',  role: 'provider', district: 'Chennai',     area: 'Adyar'      },
+  { name: 'Karthik Raj',   email: 'karthik@test.com',  phone: '9000000005', password: 'Test@1234',  role: 'provider', district: 'Coimbatore',  area: 'Gandhipuram'},
+  { name: 'Sunita Devi',   email: 'sunita@test.com',   phone: '9000000006', password: 'Test@1234',  role: 'provider', district: 'Chennai',     area: 'Velachery'  },
+  { name: 'Admin User',    email: 'admin@test.com',    phone: '9000000099', password: 'Admin@1234', role: 'admin',    district: 'Chennai',     area: 'Egmore'     },
 ];
 
 const providerProfiles = [
@@ -26,7 +25,7 @@ const providerProfiles = [
     businessName: 'Rajan Plumbing Works', tagline: 'Trusted since 2015',
     category: 'home_services', subCategory: 'Plumber',
     skills: ['Pipe Fitting','Drain Cleaning','Tap Installation','Water Heater'],
-    experience: 9, price: 499, isVerified: true, isOnline: false, status: 'active',
+    experience: 9, price: 299, priceMax: 1500, isVerified: true, isOnline: false, status: 'active',
     bio: 'Expert in pipe fitting, drain cleaning, tap installation and water heater repair. Available 7 days a week.',
     ratingAvg: 4.8, ratingCount: 124, totalBookings: 340,
   },
@@ -44,7 +43,7 @@ const providerProfiles = [
     businessName: "Amma's Tiffin Service", tagline: 'Home food, delivered fresh',
     category: 'food', subCategory: 'Tiffin Service',
     skills: ['South Indian','Veg Meals','Diet Tiffin','Monthly Plans'],
-    experience: 4, price: 120, isVerified: true, isOnline: false, status: 'active',
+    experience: 4, price: 80, priceMax: 350, isVerified: true, isOnline: false, status: 'active',
     bio: 'Fresh, hygienic home-cooked South Indian meals. Lunch and dinner tiffin. Monthly packages available.',
     ratingAvg: 4.7, ratingCount: 203, totalBookings: 1200,
   },
@@ -53,7 +52,7 @@ const providerProfiles = [
     businessName: 'Karthik Electricals', tagline: 'Safe & certified wiring',
     category: 'home_services', subCategory: 'Electrician',
     skills: ['Wiring','Switchboard','AC Installation','Fan Fixing'],
-    experience: 11, price: 399, isVerified: true, isOnline: false, status: 'active',
+    experience: 11, price: 250, priceMax: 1200, isVerified: true, isOnline: false, status: 'active',
     bio: 'Licensed electrician. Wiring, switchboard, fan and AC installation.',
     ratingAvg: 4.6, ratingCount: 67, totalBookings: 180,
   },
@@ -87,16 +86,15 @@ const run = async () => {
   // ── CREATE USERS ──────────────────────────────────────────
   const created = {};
   for (const u of users) {
-    const hash = await bcrypt.hash(u.password, 12);
     const doc  = await User.create({
       name: u.name, email: u.email, phone: u.phone,
-      password: u.password,
-      passwordHash: hash,
+      passwordHash: u.password,        // pre-save hook bcrypts this
       role: u.role,
       location: {
         type: 'Point',
         coordinates: [80.2707 + (Math.random() - 0.5) * 0.1, 13.0827 + (Math.random() - 0.5) * 0.1],
-        address: 'Chennai', city: 'Chennai', pincode: '600001',
+        address: u.area || '', district: u.district || 'Chennai', area: u.area || '',
+        city: 'Chennai', pincode: '600001',
       },
     });
     created[u.email] = doc;

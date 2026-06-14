@@ -22,6 +22,11 @@ module.exports = (io) => {
       socket.to(bookingId).emit('user_typing', { userId });
     });
 
+    // Read receipts — tell the other side their messages were seen
+    socket.on('mark_seen', ({ roomId, userId }) => {
+      socket.to(roomId).emit('messages_seen', { by: userId });
+    });
+
     // Notify a specific user (by their userId as room key)
     socket.on('join_user_room', ({ userId }) => {
       socket.join(`user_${userId}`);

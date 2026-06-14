@@ -8,7 +8,6 @@ const UserSchema = new mongoose.Schema({
   name:          { type: String, required: true, trim: true },
   email:         { type: String, required: true, unique: true, lowercase: true, trim: true },
   phone:         { type: String, required: true, unique: true },
-  password:      { type: String, required: true, trim: true },
   passwordHash:  { type: String, required: true, select: false },
   role:          { type: String, enum: ['customer','provider','admin'], default: 'customer' },
   avatar:        { type: String, default: '' },
@@ -18,6 +17,8 @@ const UserSchema = new mongoose.Schema({
     type:        { type: String, enum: ['Point'], default: 'Point' },
     coordinates: { type: [Number], default: [80.2707, 13.0827] },
     address:     { type: String, default: '' },
+    district:    { type: String, default: '', index: true },   // primary medium for offline matching
+    area:        { type: String, default: '' },                // location / locality name
     city:        { type: String, default: 'Chennai' },
     pincode:     { type: String, default: '' },
   },
@@ -25,12 +26,12 @@ const UserSchema = new mongoose.Schema({
 
 UserSchema.index({ location: '2dsphere' });
 
-// Hash password before save
-// UserSchema.pre('save', async function (next) {
-//   if (!this.isModified('passwordHash')) return next();
-//   this.passwordHash = await bcrypt.hash(this.passwordHash, 12);
-//   next();
-// });
+// Hash password before save (only when passwordHash was set/changed)
+UserSchema.pre('save', async function (next) {
+  if (!this.isModified('passwordHash')) return next();
+  this.passwordHash = await bcrypt.hash(this.passwordHash, 12);
+  next();
+});
 
 UserSchema.methods.isPasswordCorrect = function (plain, hash) {
   return bcrypt.compare(plain, hash);
@@ -60,7 +61,8 @@ const ProviderSchema = new mongoose.Schema({
   ratingAvg:     { type: Number, default: 0 },
   ratingCount:   { type: Number, default: 0 },
   totalBookings: { type: Number, default: 0 },
-  price:         { type: Number, default: 0 },
+  price:         { type: Number, default: 0 },   // starting / min price
+  priceMax:      { type: Number, default: 0 },   // upper end of range (0 = single price)
   planType:      { type: String, enum: ['free','basic','pro'], default: 'free' },
   status:        { type: String, enum: ['pending','active','suspended'], default: 'pending' },
 }, { timestamps: true });
@@ -125,6 +127,7 @@ const ReviewSchema = new mongoose.Schema({
   providerId:    { type: mongoose.Schema.Types.ObjectId, ref: 'Provider', required: true },
   rating:        { type: Number, required: true, min: 1, max: 5 },
   review:        { type: String, default: '', maxlength: 500 },
+  images:        [{ type: String }],
   tags:          [{ type: String }],
   providerReply: { type: String, default: '' },
   isVisible:     { type: Boolean, default: true },
@@ -167,4 +170,33 @@ NotificationSchema.index({ userId: 1, isRead: 1 });
 
 const Notification = mongoose.model('Notification', NotificationSchema);
 
-module.exports = { User, Provider, Service, Booking, Review, Complaint, Notification };
+// ─── CONVERSATION (unique per customer ↔ provider pair) ───────
+const ConversationSchema = new mongoose.Schema({
+  customerId:     { type: mongoose.Schema.Types.ObjectId, ref: 'User',     required: true },
+  providerUserId: { type: mongoose.Schema.Types.ObjectId, ref: 'User',     required: true },
+  providerId:     { type: mongoose.Schema.Types.ObjectId, ref: 'Provider' },
+  lastText:       { type: String, default: '' },
+  lastSenderId:   { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
+  lastAt:         { type: Date },
+}, { timestamps: true });
+
+// One conversation per (customer, provider) pair
+ConversationSchema.index({ customerId: 1, providerUserId: 1 }, { unique: true });
+
+const Conversation = mongoose.model('Conversation', ConversationSchema);
+
+// ─── MESSAGE ──────────────────────────────────────────────────
+const MessageSchema = new mongoose.Schema({
+  conversationId: { type: mongoose.Schema.Types.ObjectId, ref: 'Conversation', required: true },
+  senderId:       { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  senderName:     { type: String, required: true },
+  text:           { type: String, default: '', maxlength: 2000 },
+  image:          { type: String, default: '' },   // data URL (e.g. payment screenshot)
+  isRead:         { type: Boolean, default: false },
+}, { timestamps: true });
+
+MessageSchema.index({ conversationId: 1, createdAt: 1 });
+
+const Message = mongoose.model('Message', MessageSchema);
+
+module.exports = { User, Provider, Service, Booking, Review, Complaint, Notification, Conversation, Message };

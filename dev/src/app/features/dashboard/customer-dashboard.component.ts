@@ -74,14 +74,14 @@ import { ToastService }  from '../../core/services/toast.service';
                     <span class="nb-badge" [class]="statusClass(b.status)" data-testid="booking-status">
                       {{ b.status | titlecase }}
                     </span>
-                    @if (['pending','accepted'].includes(b.status)) {
-                      <button class="cancel-btn" (click)="cancelBooking(b._id)">Cancel</button>
-                    }
                     @if (b.status === 'accepted' && b.bookingType === 'remote' && b.meetingLink) {
                       <a [href]="b.meetingLink" target="_blank" class="join-btn">
                         <i class="bi bi-camera-video me-1"></i>Join
                       </a>
                     }
+                    <a [routerLink]="['/booking', b._id]" class="details-link">
+                      Manage <i class="bi bi-chevron-right"></i>
+                    </a>
                   </div>
                 </div>
               }
@@ -99,13 +99,13 @@ import { ToastService }  from '../../core/services/toast.service';
               <p class="text-muted-nb text-center py-2" style="font-size:.8rem">No completed bookings yet.</p>
             }
             @for (b of completedBookings().slice(0,4); track b._id) {
-              <div class="hist-row">
+              <a class="hist-row" [routerLink]="['/booking', b._id]">
                 <div>
                   <p class="bk-prov mb-0" style="font-size:.875rem">{{ b.providerId?.businessName || 'Provider' }}</p>
                   <p class="bk-meta mb-0">{{ b.scheduledDate | date:'MMM yyyy' }}</p>
                 </div>
-                <span class="nb-badge nb-badge-success">Done</span>
-              </div>
+                <span class="rate-link"><i class="bi bi-star-fill me-1"></i>Rate</span>
+              </a>
             }
           </div>
 
@@ -149,8 +149,12 @@ import { ToastService }  from '../../core/services/toast.service';
     .bk-meta  { font-size:.75rem; color:var(--nb-text-muted); margin:0; }
     .cancel-btn { background:none; border:none; color:var(--nb-danger); font-size:.72rem; cursor:pointer; padding:0; }
     .join-btn { background:#D1FAE5; color:#065f46; border-radius:6px; padding:3px 10px; font-size:.72rem; font-weight:600; font-family:var(--font-display); text-decoration:none; }
-    .hist-row { display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid var(--nb-border); }
+    .details-link { font-size:.72rem; color:var(--nb-primary); text-decoration:none; font-weight:600; font-family:var(--font-display); }
+    .details-link:hover { text-decoration:underline; }
+    .hist-row { display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid var(--nb-border); text-decoration:none; color:inherit; }
     .hist-row:last-child { border-bottom:none; }
+    .hist-row:hover .bk-prov { color:var(--nb-primary); }
+    .rate-link { color:var(--nb-accent); font-size:.75rem; font-weight:700; font-family:var(--font-display); white-space:nowrap; }
     .qa-grid  { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
     .qa-item  { display:flex; flex-direction:column; align-items:center; gap:6px; padding:14px; background:var(--nb-surface-2); border-radius:var(--radius-md); text-decoration:none; color:var(--nb-text); font-family:var(--font-display); font-size:.75rem; font-weight:600; text-transform:uppercase; letter-spacing:.04em; transition:all .2s; }
     .qa-item i { font-size:1.25rem; color:var(--nb-primary); }

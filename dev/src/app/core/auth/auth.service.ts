@@ -12,6 +12,8 @@ export interface User {
   email:  string;
   role:   'customer' | 'provider' | 'admin';
   avatar: string;
+  phone?:    string;
+  location?: { city?: string; address?: string; district?: string; area?: string };
 }
 
 @Injectable({ providedIn: 'root' })
@@ -26,7 +28,7 @@ export class AuthService {
   constructor(private http: HttpClient, private router: Router) {}
 
   // Register new account
-  register(payload: { name: string; email: string; phone: string; password: string; role: string }) {
+  register(payload: { name: string; email: string; phone: string; password: string; role: string; district?: string; area?: string }) {
     return this.http.post<any>(`${this.API}/register`, payload).pipe(
       tap(res => this.saveSession(res.data)),
       catchError(err => throwError(() => err.error?.message ?? 'Registration failed'))
@@ -45,6 +47,25 @@ export class AuthService {
   logout() {
     this.http.post(`${this.API}/logout`, {}).subscribe();
     this.clearSession();
+  }
+
+  // Load the full profile (includes phone + location, which the
+  // login response omits) — used by the settings page.
+  loadProfile() {
+    return this.http.get<any>(`${this.API}/me`);
+  }
+
+  // Update own profile (name, phone, city, address, optional new password)
+  updateProfile(payload: { name?: string; phone?: string; city?: string; address?: string; district?: string; area?: string; password?: string }) {
+    return this.http.put<any>(`${this.API}/me`, payload).pipe(
+      tap(res => {
+        // Refresh the cached user so the navbar etc. update immediately
+        const updated = { ...(this.currentUser() ?? {}), ...res.data } as User;
+        localStorage.setItem('nb_user', JSON.stringify(updated));
+        this.currentUser.set(updated);
+      }),
+      catchError(err => throwError(() => err.error?.message ?? 'Update failed'))
+    );
   }
 
   // Used by JWT interceptor

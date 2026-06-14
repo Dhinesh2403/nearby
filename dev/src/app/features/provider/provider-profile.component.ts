@@ -1,12 +1,13 @@
 // src/app/features/provider/provider-profile.component.ts
-import { Component, OnInit, signal } from '@angular/core';
+import { Component, OnInit, signal, computed } from '@angular/core';
 import { CommonModule }   from '@angular/common';
 import { FormsModule }    from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { ApiService, Provider, ApiResponse } from '../../core/services/api.service';
+import { ChatService }    from '../../core/services/chat.service';
 import { AuthService }    from '../../core/auth/auth.service';
 
-interface Review { name:string; initial:string; color:string; rating:number; text:string; date:string; tags:string[]; }
+interface Review { id:string; name:string; initial:string; color:string; rating:number; text:string; date:string; tags:string[]; images:string[]; }
 
 @Component({
   selector: 'app-provider-profile',
@@ -38,7 +39,7 @@ interface Review { name:string; initial:string; color:string; rating:number; tex
                 <p class="pp-tagline">{{ provider()!.tagline }}</p>
                 <div class="d-flex flex-wrap gap-2">
                   <span class="nb-badge" style="background:rgba(255,255,255,.2);color:#fff">
-                    <i class="bi bi-geo-alt-fill"></i>{{ providerCity() }}
+                    <i class="bi bi-geo-alt-fill"></i>{{ providerLocation() }}
                   </span>
                   <span class="nb-badge" style="background:rgba(255,255,255,.2);color:#fff">
                     {{ provider()!.subCategory }}
@@ -69,18 +70,20 @@ interface Review { name:string; initial:string; color:string; rating:number; tex
           <div class="container d-flex justify-content-between align-items-center flex-wrap gap-2">
             <div class="d-flex gap-3 align-items-center">
               <span class="fw-display" style="font-weight:700;font-size:1.1rem">
-                ₹{{ provider()!.price }}
+                {{ priceLabel() }}
                 <span style="font-weight:400;font-size:.8rem;color:var(--nb-text-muted)"> onwards</span>
               </span>
               <span class="text-muted-nb" style="font-size:.875rem">· {{ provider()!.experience }} yrs exp</span>
             </div>
             <div class="d-flex gap-2">
-              <a [routerLink]="['/chat','demo-booking']" class="btn-nb-outline btn btn-sm">
-                <i class="bi bi-chat-dots me-1"></i>Message
-              </a>
-              <button class="btn-nb-primary btn btn-sm" (click)="bookNow()" data-testid="book-now-btn">
-                <i class="bi bi-calendar-plus me-1"></i>Book Now
-              </button>
+              @if (canBook()) {
+                <button class="btn-nb-outline btn btn-sm" (click)="messageProvider()">
+                  <i class="bi bi-chat-dots me-1"></i>Message
+                </button>
+                <button class="btn-nb-primary btn btn-sm" (click)="bookNow()" data-testid="book-now-btn">
+                  <i class="bi bi-calendar-plus me-1"></i>Book Now
+                </button>
+              }
             </div>
           </div>
         </div>
@@ -100,6 +103,15 @@ interface Review { name:string; initial:string; color:string; rating:number; tex
                 <div class="tab-panel">
                   <h5 class="tp-title">About</h5>
                   <p class="tp-text">{{ provider()!.bio }}</p>
+
+                  @if (provider()!.images?.length) {
+                    <h5 class="tp-title mt-4">Work Gallery</h5>
+                    <div class="work-grid">
+                      @for (img of provider()!.images; track $index) {
+                        <img class="work-img" [src]="img" alt="work sample" (click)="lightbox.set(img)" />
+                      }
+                    </div>
+                  }
 
                   <h5 class="tp-title mt-4">Skills</h5>
                   <div class="skills-wrap">
@@ -134,7 +146,12 @@ interface Review { name:string; initial:string; color:string; rating:number; tex
                     </div>
                   </div>
                   <div class="revs-list">
-                    @for (r of reviews; track r.name) {
+                    @if (reviews().length === 0) {
+                      <p class="text-muted-nb text-center py-3" style="font-size:.875rem">
+                        No reviews yet. Be the first to book and review!
+                      </p>
+                    }
+                    @for (r of reviews(); track r.id) {
                       <div class="rev-card" data-testid="review-card">
                         <div class="d-flex justify-content-between align-items-start mb-2">
                           <div class="d-flex gap-2 align-items-center">
@@ -148,7 +165,14 @@ interface Review { name:string; initial:string; color:string; rating:number; tex
                             @for (s of starsArr(r.rating); track s) { ★ }
                           </span>
                         </div>
-                        <p class="rev-text">{{ r.text }}</p>
+                        @if (r.text) { <p class="rev-text">{{ r.text }}</p> }
+                        @if (r.images?.length) {
+                          <div class="rev-photos">
+                            @for (img of r.images; track $index) {
+                              <img [src]="img" alt="review photo" (click)="lightbox.set(img)" />
+                            }
+                          </div>
+                        }
                         <div class="rev-tags">
                           @for (tg of r.tags; track tg) { <span class="rev-tag">{{ tg }}</span> }
                         </div>
@@ -161,6 +185,14 @@ interface Review { name:string; initial:string; color:string; rating:number; tex
 
             <!-- BOOKING SIDEBAR -->
             <div class="col-lg-4">
+              @if (!canBook()) {
+                <div class="bk-sidebar nb-card p-3 text-center">
+                  <i class="bi bi-info-circle text-muted-nb" style="font-size:1.5rem"></i>
+                  <p class="text-muted-nb mt-2 mb-0" style="font-size:.875rem">
+                    Only customer accounts can book a service. Sign in as a customer to continue.
+                  </p>
+                </div>
+              } @else {
               <div class="bk-sidebar nb-card p-3">
                 <h6 class="fw-display mb-3">Quick Book</h6>
                 <label class="nb-label">Date</label>
@@ -190,10 +222,17 @@ interface Review { name:string; initial:string; color:string; rating:number; tex
                   <div class="bks"><span class="bks-i"><i class="bi bi-calendar2-check"></i></span><span>{{ provider()!.totalBookings }}+ jobs done</span></div>
                 </div>
               </div>
+              }
             </div>
 
           </div>
         </div>
+      </div>
+    }
+
+    @if (lightbox()) {
+      <div class="lightbox" (click)="lightbox.set(null)">
+        <img [src]="lightbox()" alt="work sample" />
       </div>
     }
   `,
@@ -216,6 +255,11 @@ interface Review { name:string; initial:string; color:string; rating:number; tex
     .skills-wrap { display:flex;flex-wrap:wrap;gap:8px; }
     .skill-chip { display:inline-flex;align-items:center;gap:5px;background:#EFF6FF;color:var(--nb-primary);border-radius:var(--radius-sm);padding:5px 12px;font-size:.8rem;font-family:var(--font-display);font-weight:600; }
     .skill-chip i { font-size:.7rem; }
+    .work-grid { display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:10px; }
+    .work-img { width:100%;aspect-ratio:1;object-fit:cover;border-radius:var(--radius-md);border:1px solid var(--nb-border);cursor:pointer;transition:transform .12s; }
+    .work-img:hover { transform:scale(1.03); }
+    .lightbox { position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:10000;display:flex;align-items:center;justify-content:center;padding:2rem;cursor:zoom-out; }
+    .lightbox img { max-width:92vw;max-height:92vh;border-radius:var(--radius-md); }
     .avail-days { display:flex;gap:6px;flex-wrap:wrap; }
     .aday { width:38px;height:38px;border-radius:var(--radius-sm);background:var(--nb-surface-2);display:flex;align-items:center;justify-content:center;font-size:.72rem;font-weight:700;font-family:var(--font-display);color:var(--nb-text-muted); }
     .aday.on { background:var(--nb-primary);color:#fff; }
@@ -227,6 +271,9 @@ interface Review { name:string; initial:string; color:string; rating:number; tex
     .rev-name { font-family:var(--font-display);font-size:.875rem;font-weight:700;margin:0; }
     .rev-date { font-size:.72rem;color:var(--nb-text-muted);margin:0; }
     .rev-text { font-size:.875rem;color:var(--nb-text-muted);margin:0 0 8px;line-height:1.6; }
+    .rev-photos { display:flex;flex-wrap:wrap;gap:6px;margin:0 0 8px; }
+    .rev-photos img { width:64px;height:64px;object-fit:cover;border-radius:8px;border:1px solid var(--nb-border);cursor:pointer;transition:transform .12s; }
+    .rev-photos img:hover { transform:scale(1.05); }
     .rev-tags { display:flex;flex-wrap:wrap;gap:5px; }
     .rev-tag { background:var(--nb-surface-2);color:var(--nb-text-muted);border-radius:20px;padding:2px 10px;font-size:.72rem;font-family:var(--font-display);font-weight:600; }
     .bk-sidebar { position:sticky;top:130px; }
@@ -250,18 +297,39 @@ export class ProviderProfileComponent implements OnInit {
   allDays   = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
   tabs = [{ id:'about', label:'About' }, { id:'reviews', label:'Reviews' }];
 
-  reviews: Review[] = [
-    { name:'Arjun S',  initial:'A', color:'#2563A8', rating:5, text:'Excellent work! Fixed the issue in under an hour. Very professional and clean.', date:'May 2026', tags:['Punctual','Professional'] },
-    { name:'Meera K',  initial:'M', color:'#059669', rating:5, text:'Very reliable. Has been my go-to for 2 years. Highly recommended!', date:'Apr 2026', tags:['Reliable','Good Value'] },
-    { name:'Vijay R',  initial:'V', color:'#D97706', rating:4, text:'Good work overall. Arrived slightly late but did a thorough job.', date:'Mar 2026', tags:['Professional'] },
-  ];
+  // Only guests (who will be asked to log in) and customers may book.
+  // Providers and admins never see booking controls.
+  canBook = computed(() => {
+    const role = this.auth.userRole();
+    return role === null || role === 'customer';
+  });
+
+  reviews = signal<Review[]>([]);
+  lightbox = signal<string | null>(null);
+  private revColors = ['#2563A8','#059669','#D97706','#7C3AED','#DC2626'];
+
+  priceLabel() {
+    const p = this.provider();
+    if (!p) return '';
+    return p.priceMax && p.priceMax > p.price ? `₹${p.price} – ₹${p.priceMax}` : `₹${p.price}`;
+  }
 
   constructor(
     private route:  ActivatedRoute,
     private router: Router,
     private api:    ApiService,
+    private chat:   ChatService,
     private auth:   AuthService,
   ) {}
+
+  messageProvider() {
+    if (!this.auth.isLoggedIn()) { this.router.navigate(['/auth/login']); return; }
+    const id = this.provider()?._id;
+    if (!id) return;
+    this.chat.open({ providerId: id }).subscribe({
+      next: c => this.router.navigate(['/chat', c._id]),
+    });
+  }
 
   ngOnInit() {
     this.bkDate = this.today;
@@ -270,6 +338,30 @@ export class ProviderProfileComponent implements OnInit {
       next: res => { this.provider.set(res.data); this.loading.set(false); },
       error: ()  => { this.loading.set(false); },
     });
+    this.loadReviews(id);
+  }
+
+  // Public — anyone (even logged-out) can read a provider's reviews
+  loadReviews(providerId: string) {
+    this.api.get<ApiResponse<any[]>>(`/reviews/provider/${providerId}`).subscribe({
+      next: res => {
+        const mapped = (res.data ?? []).map((r, i): Review => {
+          const name = r.customerId?.name ?? 'Customer';
+          return {
+            id:      r._id,
+            name,
+            initial: name.charAt(0).toUpperCase(),
+            color:   this.revColors[i % this.revColors.length],
+            rating:  r.rating,
+            text:    r.review ?? '',
+            date:    new Date(r.createdAt).toLocaleDateString('en-IN', { month: 'short', year: 'numeric' }),
+            tags:    r.tags ?? [],
+            images:  r.images ?? [],
+          };
+        });
+        this.reviews.set(mapped);
+      },
+    });
   }
 
   hcolor() {
@@ -277,9 +369,10 @@ export class ProviderProfileComponent implements OnInit {
     return m[this.provider()?.category ?? ''] ?? '#1A3C5E';
   }
 
-  providerCity() {
-    const u = this.provider()?.userId;
-    return u?.location?.city ?? 'Chennai';
+  providerLocation() {
+    const loc = this.provider()?.userId?.location;
+    const parts = [loc?.area, loc?.district].filter(Boolean);
+    return parts.length ? parts.join(', ') : (loc?.city ?? 'Chennai');
   }
 
   isDayOn(d: string) {
@@ -290,6 +383,7 @@ export class ProviderProfileComponent implements OnInit {
 
   bookNow() {
     if (!this.auth.isLoggedIn()) { this.router.navigate(['/auth/login']); return; }
+    if (!this.canBook()) { this.router.navigate(['/']); return; }   // admins/providers can't book
     this.router.navigate(['/booking/new'], {
       queryParams: { providerId: this.provider()?._id, date: this.bkDate, time: this.bkTime, type: this.bkType },
     });

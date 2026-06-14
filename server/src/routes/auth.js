@@ -10,7 +10,7 @@ const { protect }        = require('../middleware/auth');
 // ── POST /api/auth/register ────────────────────────────────────
 router.post('/register', async (req, res, next) => {
   try {
-    const { name, email, phone, password, role } = req.body;
+    const { name, email, phone, password, role, district, area, city } = req.body;
     if (!name || !email || !phone || !password)
       return fail(res, 'name, email, phone and password are required.');
 
@@ -24,6 +24,11 @@ router.post('/register', async (req, res, next) => {
       name, email, phone,
       passwordHash: password,          // pre-save hook bcrypts this
       role: ['customer','provider'].includes(role) ? role : 'customer',
+      location: {
+        district: district || '',
+        area:     area     || '',
+        city:     city     || 'Chennai',
+      },
     });
 
     const { accessToken, refreshToken } = generateTokens(user._id);
@@ -33,7 +38,7 @@ router.post('/register', async (req, res, next) => {
       success: true,
       message: 'Account created.',
       data: {
-        user: { _id: user._id, name: user.name, email: user.email, role: user.role, avatar: user.avatar },
+        user: { _id: user._id, name: user.name, email: user.email, role: user.role, avatar: user.avatar, location: user.location },
         accessToken,
         refreshToken,
       },
@@ -59,7 +64,7 @@ router.post('/login', async (req, res, next) => {
     await User.findByIdAndUpdate(user._id, { refreshToken });
 
     ok(res, {
-      user: { _id: user._id, name: user.name, email: user.email, role: user.role, avatar: user.avatar },
+      user: { _id: user._id, name: user.name, email: user.email, role: user.role, avatar: user.avatar, location: user.location },
       accessToken,
       refreshToken,
     }, 'Login successful.');
@@ -100,5 +105,43 @@ router.post('/logout', protect, async (req, res, next) => {
 
 // ── GET /api/auth/me ───────────────────────────────────────────
 router.get('/me', protect, (req, res) => ok(res, req.user));
+
+// ── PUT /api/auth/me — update own profile ──────────────────────
+router.put('/me', protect, async (req, res, next) => {
+  try {
+    const { name, phone, city, address, district, area, password } = req.body;
+
+    // Phone must stay unique across users
+    if (phone && phone !== req.user.phone) {
+      const taken = await User.findOne({ phone, _id: { $ne: req.user._id } });
+      if (taken) return fail(res, 'Phone already in use by another account.', 409);
+    }
+
+    // Load the full doc so the pre-save hook can hash a new password
+    const user = await User.findById(req.user._id).select('+passwordHash');
+    if (!user) return fail(res, 'User not found.', 404);
+
+    if (name)     user.name = name;
+    if (phone)    user.phone = phone;
+    if (city)     user.location.city = city;
+    if (address)  user.location.address = address;
+    if (district !== undefined) user.location.district = district;
+    if (area !== undefined)     user.location.area = area;
+    if (password) {
+      if (password.length < 6) return fail(res, 'Password must be at least 6 characters.');
+      user.passwordHash = password;          // pre-save hook bcrypts this
+    }
+
+    await user.save();
+
+    ok(res, {
+      _id: user._id, name: user.name, email: user.email, phone: user.phone,
+      role: user.role, avatar: user.avatar, location: user.location,
+    }, 'Profile updated.');
+  } catch (e) {
+    if (e.code === 11000) return fail(res, 'Phone already in use by another account.', 409);
+    next(e);
+  }
+});
 
 module.exports = router;

@@ -77,4 +77,18 @@ const generateTokens = (userId) => ({
   ),
 });
 
-module.exports = { ok, paginated, fail, createError, sendEmail, generateTokens };
+// ─────────────────────────────────────────────────────────────
+// src/utils/notify.js
+// Create a Notification record AND push it live to the user's socket
+// room so their bell badge + toast update instantly.
+// ─────────────────────────────────────────────────────────────
+const pushNotify = async (io, userId, { type, title, body, link = '' }) => {
+  if (!userId) return;
+  try {
+    const { Notification } = require('../models');
+    await Notification.create({ userId, type, title, body, link });
+    if (io) io.notifyUser(userId.toString(), 'notify:new', { type, title, body, link });
+  } catch (_) { /* non-fatal */ }
+};
+
+module.exports = { ok, paginated, fail, createError, sendEmail, generateTokens, pushNotify };

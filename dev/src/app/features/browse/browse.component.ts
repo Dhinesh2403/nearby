@@ -4,6 +4,8 @@ import { CommonModule }  from '@angular/common';
 import { FormsModule }   from '@angular/forms';
 import { RouterLink, ActivatedRoute, Router } from '@angular/router';
 import { ApiService, Provider, PaginatedResponse } from '../../core/services/api.service';
+import { AuthService } from '../../core/auth/auth.service';
+import { DISTRICTS }   from '../../core/constants';
 
 @Component({
   selector: 'app-browse',
@@ -33,12 +35,25 @@ import { ApiService, Provider, PaginatedResponse } from '../../core/services/api
                     [(ngModel)]="mobileCat" (ngModelChange)="setCat($event)">
               @for (c of cats; track c.id) { <option [value]="c.id">{{ c.label }}</option> }
             </select>
+            <div class="fdistrict">
+              <i class="bi bi-geo-alt-fill"></i>
+              <select [(ngModel)]="district" (ngModelChange)="onDistrictChange()" title="District">
+                <option value="">All districts</option>
+                @for (d of districts; track d) { <option [value]="d">{{ d }}</option> }
+              </select>
+            </div>
             <label class="ftoggle">
               <input type="checkbox" [(ngModel)]="onlineOnly" (ngModelChange)="load()">
               <span class="tog-track"><span class="tog-thumb"></span></span>
               <span class="tog-lbl">Online</span>
             </label>
           </div>
+          @if (district()) {
+            <p class="dnote">
+              <i class="bi bi-info-circle me-1"></i>
+              Showing offline providers in <strong>{{ district() }}</strong>. Online providers are shown from all districts.
+            </p>
+          }
         </div>
       </div>
 
@@ -113,6 +128,10 @@ import { ApiService, Provider, PaginatedResponse } from '../../core/services/api
                         <span class="nb-badge nb-badge-muted" data-testid="provider-category">{{ catLabel(p.category) }}</span>
                         · {{ p.subCategory }}
                       </p>
+                      <p class="pc-loc">
+                        <i class="bi bi-geo-alt"></i>
+                        {{ p.userId?.location?.area || p.userId?.location?.district || 'Location N/A' }}@if (p.userId?.location?.district) { , {{ p.userId?.location?.district }} }
+                      </p>
                       <div class="pc-rating">
                         <span class="star-filled">★</span>
                         <strong data-testid="rating-value">{{ p.ratingAvg }}</strong>
@@ -121,7 +140,10 @@ import { ApiService, Provider, PaginatedResponse } from '../../core/services/api
                       </div>
                       <p class="pc-bio">{{ p.bio | slice:0:85 }}...</p>
                       <div class="pc-footer">
-                        <div><span class="pf-from">From</span><span class="pf-price">₹{{ p.price }}</span></div>
+                        <div>
+                          <span class="pf-from">From</span>
+                          <span class="pf-price">₹{{ p.price }}@if (p.priceMax && p.priceMax > p.price) { <span style="font-size:.8rem"> – ₹{{ p.priceMax }}</span> }</span>
+                        </div>
                         <button class="btn-nb-primary btn btn-sm">Book Now</button>
                       </div>
                     </div>
@@ -150,7 +172,7 @@ import { ApiService, Provider, PaginatedResponse } from '../../core/services/api
     </div>
   `,
   styles: [`
-    .fbar { background:#fff; border-bottom:1px solid var(--nb-border); position:sticky; top:64px; z-index:100; padding:12px 0; box-shadow:0 2px 8px rgba(0,0,0,.04); }
+    .fbar { background:#fff; border-bottom:1px solid var(--nb-border); position:sticky; top:64px; z-index:1010; padding:12px 0; box-shadow:0 2px 8px rgba(0,0,0,.04); }
     .fbar-inner { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
     .fsearch { display:flex; align-items:center; background:var(--nb-bg); border:1.5px solid var(--nb-border); border-radius:var(--radius-md); padding:8px 14px; gap:8px; flex:1; min-width:200px; }
     .fsearch i { color:var(--nb-text-muted); }
@@ -184,6 +206,12 @@ import { ApiService, Provider, PaginatedResponse } from '../../core/services/api
     .pc-body { padding:14px 16px 16px; }
     .pc-name { font-family:var(--font-display); font-size:.95rem; font-weight:700; margin:0; }
     .pc-sub { font-size:.78rem; color:var(--nb-text-muted); margin:4px 0; }
+    .pc-loc { font-size:.76rem; color:var(--nb-text-muted); margin:0 0 6px; display:flex; align-items:center; gap:4px; }
+    .pc-loc i { color:var(--nb-primary); }
+    .fdistrict { display:flex; align-items:center; gap:6px; background:var(--nb-bg); border:1.5px solid var(--nb-border); border-radius:var(--radius-md); padding:6px 12px; }
+    .fdistrict i { color:var(--nb-primary); font-size:.85rem; }
+    .fdistrict select { border:none; outline:none; background:transparent; font-family:var(--font-display); font-size:.8rem; font-weight:600; color:var(--nb-text); cursor:pointer; }
+    .dnote { font-size:.75rem; color:var(--nb-text-muted); margin:10px 0 0; }
     .pc-rating { font-size:.8rem; color:var(--nb-text-muted); margin-bottom:6px; }
     .pc-bio { font-size:.8rem; color:var(--nb-text-muted); margin-bottom:12px; line-height:1.5; }
     .pc-footer { display:flex; justify-content:space-between; align-items:center; }
@@ -209,6 +237,8 @@ export class BrowseComponent implements OnInit {
   sort       = 'rating';
   q          = '';
   mobileCat  = 'all';
+  district   = signal('');
+  districts  = DISTRICTS;
   private searchTimer: any;
 
   totalPages  = computed(() => Math.ceil(this.total() / 12));
@@ -223,15 +253,33 @@ export class BrowseComponent implements OnInit {
     { id:'events',        label:'Events',         icon:'bi-camera' },
   ];
 
-  constructor(private api: ApiService, private route: ActivatedRoute) {}
+  constructor(private api: ApiService, private route: ActivatedRoute, private auth: AuthService) {}
 
   ngOnInit() {
     this.route.queryParams.subscribe(p => {
       if (p['category']) { this.cat.set(p['category']); this.mobileCat = p['category']; }
       if (p['q'])         this.q = p['q'];
-      this.load();
+      this.initDistrictThenLoad(p['district']);
     });
   }
+
+  // Default the district filter to the logged-in user's district.
+  // The cached user may lack location, so fall back to fetching the profile.
+  private initDistrictThenLoad(qpDistrict?: string) {
+    if (qpDistrict) { this.district.set(qpDistrict); this.load(); return; }
+    const cached = this.auth.currentUser()?.location?.district;
+    if (cached) { this.district.set(cached); this.load(); return; }
+    if (this.auth.isLoggedIn()) {
+      this.auth.loadProfile().subscribe({
+        next: res => { this.district.set(res.data?.location?.district ?? ''); this.load(); },
+        error: () => this.load(),
+      });
+    } else {
+      this.load();
+    }
+  }
+
+  onDistrictChange() { this.page.set(1); this.load(); }
 
   load() {
     this.loading.set(true);
@@ -244,6 +292,7 @@ export class BrowseComponent implements OnInit {
     if (this.minRating() > 0) params['rating']    = this.minRating();
     if (this.onlineOnly)      params['isOnline']  = true;
     if (this.q.trim())        params['search']    = this.q.trim();
+    if (this.district())      params['district']  = this.district();
 
     this.api.get<PaginatedResponse<Provider>>('/providers', params).subscribe({
       next: res => {
@@ -267,6 +316,7 @@ export class BrowseComponent implements OnInit {
   clearAll() {
     this.q = ''; this.cat.set('all'); this.mobileCat = 'all';
     this.minRating.set(0); this.onlineOnly = false; this.sort = 'rating';
+    this.district.set(this.auth.currentUser()?.location?.district ?? '');
     this.page.set(1); this.load();
   }
 

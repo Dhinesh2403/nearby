@@ -7,7 +7,7 @@ const { protect, authorize }  = require('../middleware/auth');
 // GET /api/providers — browse with filters
 router.get('/', async (req, res, next) => {
   try {
-    const { category, isOnline, rating, city, page = 1, limit = 12, sort = 'rating' } = req.query;
+    const { category, isOnline, rating, city, district, page = 1, limit = 12, sort = 'rating' } = req.query;
 
     const filter = { status: 'active', isVerified: true };
     if (category && category !== 'all') filter.category = category;
@@ -19,8 +19,16 @@ router.get('/', async (req, res, next) => {
 
     let query = Provider.find(filter).populate('userId', 'name avatar location').sort(sortObj);
 
-    // City filter via populated user location
     let all = await query;
+
+    // District is the primary medium for offline services: only providers in the
+    // same district are shown, EXCEPT online providers who can serve any district.
+    if (district) {
+      const d = district.toLowerCase();
+      all = all.filter(p => p.isOnline || (p.userId?.location?.district || '').toLowerCase() === d);
+    }
+
+    // City filter via populated user location
     if (city) all = all.filter(p => p.userId?.location?.city?.toLowerCase().includes(city.toLowerCase()));
 
     const total   = all.length;
@@ -72,12 +80,18 @@ router.get('/:id', async (req, res, next) => {
 });
 
 // POST /api/providers — create profile
+// Admin approval was removed, so new profiles go live immediately.
 router.post('/', protect, authorize('provider'), async (req, res, next) => {
   try {
     const exists = await Provider.findOne({ userId: req.user._id });
     if (exists) return fail(res, 'Provider profile already exists.', 409);
-    const p = await Provider.create({ ...req.body, userId: req.user._id });
-    res.status(201).json({ success: true, message: 'Profile created. Awaiting verification.', data: p });
+    const p = await Provider.create({
+      ...req.body,
+      userId:     req.user._id,
+      status:     'active',
+      isVerified: true,
+    });
+    res.status(201).json({ success: true, message: 'Profile created and published.', data: p });
   } catch (e) { next(e); }
 });
 

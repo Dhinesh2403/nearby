@@ -53,3 +53,30 @@ export const adminGuard: CanActivateFn = () => {
   router.navigate(['/']);
   return false;
 };
+
+// nonAdminGuard — allows everyone EXCEPT admins (e.g. Browse).
+// Admins are redirected to their own panel.
+export const nonAdminGuard: CanActivateFn = () => {
+  const auth   = inject(AuthService);
+  const router = inject(Router);
+  if (auth.userRole() === 'admin') { router.navigate(['/admin']); return false; }
+  return true;
+};
+
+// roleGuard — restrict a route to one or more roles.
+// Usage: canActivate: [roleGuard('customer')]  or  roleGuard('customer','provider')
+// Sends a logged-out user to login, and a logged-in user with the wrong
+// role to their own home (admins → /admin, others → landing page).
+export const roleGuard = (...roles: Array<'customer' | 'provider' | 'admin'>): CanActivateFn =>
+  () => {
+    const auth   = inject(AuthService);
+    const router = inject(Router);
+    const role   = auth.userRole();
+
+    if (!role) { router.navigate(['/auth/login']); return false; }
+    if (roles.includes(role)) return true;
+
+    // Logged in but not permitted — bounce to a page they can use.
+    router.navigate([role === 'admin' ? '/admin' : '/']);
+    return false;
+  };

@@ -1,9 +1,10 @@
 // src/app/features/dashboard/provider-dashboard.component.ts
 import { Component, OnInit, signal } from '@angular/core';
 import { CommonModule }  from '@angular/common';
-import { RouterLink }    from '@angular/router';
+import { RouterLink, Router } from '@angular/router';
 import { AuthService }   from '../../core/auth/auth.service';
 import { ApiService, Booking } from '../../core/services/api.service';
+import { ChatService }   from '../../core/services/chat.service';
 import { ToastService }  from '../../core/services/toast.service';
 
 @Component({
@@ -18,9 +19,14 @@ import { ToastService }  from '../../core/services/toast.service';
           <h2 class="section-title">Provider Dashboard</h2>
           <p class="section-sub mb-0">{{ auth.currentUser()?.name }}</p>
         </div>
-        <a routerLink="/browse" class="btn-nb-outline btn btn-sm">
-          <i class="bi bi-eye me-1"></i>View My Profile
-        </a>
+        <div class="d-flex gap-2">
+          <a routerLink="/provider/services" class="btn-nb-primary btn btn-sm">
+            <i class="bi bi-pencil-square me-1"></i>Edit Service Details
+          </a>
+          <a routerLink="/browse" class="btn-nb-outline btn btn-sm">
+            <i class="bi bi-eye me-1"></i>View My Profile
+          </a>
+        </div>
       </div>
 
       <!-- KPIs -->
@@ -60,7 +66,10 @@ import { ToastService }  from '../../core/services/toast.service';
                     </p>
                     @if (b.notes) { <p class="bk-notes">"{{ b.notes }}"</p> }
                   </div>
-                  <div class="d-flex gap-2">
+                  <div class="d-flex gap-2 align-items-center">
+                    <button class="msg-link" title="Message customer" (click)="openChat(b)">
+                      <i class="bi bi-chat-dots"></i>
+                    </button>
                     <button class="act-btn accept" (click)="accept(b._id)">
                       <i class="bi bi-check-lg"></i>Accept
                     </button>
@@ -86,8 +95,10 @@ import { ToastService }  from '../../core/services/toast.service';
                   <p class="bk-prov">{{ b.customerId?.name || 'Customer' }}</p>
                   <p class="bk-meta">{{ b.scheduledDate | date:'dd MMM' }} · {{ b.scheduledTime }}</p>
                 </div>
-                <div class="d-flex gap-2">
-                  <span class="nb-badge nb-badge-success">Accepted</span>
+                <div class="d-flex gap-2 align-items-center">
+                  <a [routerLink]="['/chat', b._id]" class="msg-link" title="Message customer">
+                    <i class="bi bi-chat-dots"></i>
+                  </a>
                   <button class="act-btn complete" (click)="complete(b._id)">
                     <i class="bi bi-check2-all"></i>Done
                   </button>
@@ -133,6 +144,7 @@ import { ToastService }  from '../../core/services/toast.service';
           <div class="ds-card">
             <div class="ds-hdr"><h6 class="ds-title">Quick Links</h6></div>
             <div class="ql-list">
+              <a routerLink="/provider/services" class="ql-item"><i class="bi bi-pencil-square"></i>Edit Service Details</a>
               <a routerLink="/browse" class="ql-item"><i class="bi bi-eye"></i>View My Public Profile</a>
               <a routerLink="/complaints/new" class="ql-item"><i class="bi bi-flag"></i>Raise a Complaint</a>
             </div>
@@ -164,6 +176,8 @@ import { ToastService }  from '../../core/services/toast.service';
     .act-btn.reject:hover { background:#FECACA; }
     .act-btn.complete { background:#DBEAFE; color:#1e40af; }
     .act-btn.complete:hover { background:#BFDBFE; }
+    .msg-link { width:30px; height:30px; min-width:30px; border:none; border-radius:8px; background:var(--nb-surface-2); color:var(--nb-primary); display:flex; align-items:center; justify-content:center; text-decoration:none; font-size:.9rem; cursor:pointer; }
+    .msg-link:hover { background:#EFF6FF; }
     .prog-track { height:8px; background:var(--nb-surface-2); border-radius:4px; overflow:hidden; }
     .prog-fill  { height:100%; background:linear-gradient(90deg,var(--nb-primary),var(--nb-primary-light)); border-radius:4px; }
     .ql-list { display:flex; flex-direction:column; gap:6px; }
@@ -181,9 +195,25 @@ export class ProviderDashboardComponent implements OnInit {
   avgRating        = signal(0);
   totalRatings     = signal(0);
 
-  constructor(public auth: AuthService, private api: ApiService, private toast: ToastService) {}
+  constructor(
+    public auth: AuthService,
+    private api: ApiService,
+    private chat: ChatService,
+    private toast: ToastService,
+    private router: Router,
+  ) {}
 
   ngOnInit() { this.loadBookings(); }
+
+  // Open the unique conversation with this booking's customer
+  openChat(b: any) {
+    const customerId = b.customerId?._id ?? b.customerId;
+    if (!customerId) return;
+    this.chat.open({ customerId }).subscribe({
+      next: c => this.router.navigate(['/chat', c._id]),
+      error: () => this.toast.error('Could not open chat.'),
+    });
+  }
 
   loadBookings() {
     this.loadingBookings.set(true);

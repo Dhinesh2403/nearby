@@ -51,39 +51,6 @@ import { ToastService }  from '../../core/services/toast.service';
         }
       </div>
 
-      <!-- ── PENDING PROVIDERS ───────────────────────────────── -->
-      @if (tab()==='providers') {
-        <div class="atbl-card">
-          <div class="atbl-hdr">
-            <h6 class="atbl-title">Pending Provider Approvals</h6>
-            <span class="nb-badge nb-badge-warning">{{ pendingProviders().length }} awaiting</span>
-          </div>
-          @if (loadingTab()) {
-            <div class="nb-spinner-wrap" style="min-height:160px"><div class="nb-spinner"></div></div>
-          } @else if (pendingProviders().length===0) {
-            <p class="text-muted-nb text-center py-4">✅ No pending providers</p>
-          } @else {
-            @for (p of pendingProviders(); track p._id) {
-              <div class="arow" data-testid="pending-provider-card">
-                <div class="arow-av" [style.background]="catColor(p.category)">{{ p.businessName?.charAt(0) }}</div>
-                <div class="flex-grow-1">
-                  <p class="arow-name">{{ p.businessName }}</p>
-                  <p class="arow-meta">{{ catLabel(p.category) }} · {{ p.userId?.email ?? '—' }} · Applied {{ p.createdAt | date:'dd MMM' }}</p>
-                </div>
-                <div class="d-flex gap-2">
-                  <button class="aact-btn approve" (click)="approveProvider(p._id)" data-testid="approve-btn">
-                    <i class="bi bi-check-lg me-1"></i>Approve
-                  </button>
-                  <button class="aact-btn reject" (click)="rejectProvider(p._id)">
-                    <i class="bi bi-x-lg me-1"></i>Reject
-                  </button>
-                </div>
-              </div>
-            }
-          }
-        </div>
-      }
-
       <!-- ── OPEN COMPLAINTS ──────────────────────────────────── -->
       @if (tab()==='complaints') {
         <div class="atbl-card">
@@ -102,7 +69,14 @@ import { ToastService }  from '../../core/services/toast.service';
                 <div class="flex-grow-1">
                   <p class="arow-name">{{ c.type | titlecase }} — by {{ c.raisedBy?.name ?? '—' }}</p>
                   <p class="arow-meta">Against: {{ c.against?.name ?? '—' }} · {{ c.createdAt | date:'dd MMM' }}</p>
-                  <p class="arow-desc">"{{ c.description | slice:0:120 }}..."</p>
+                  <p class="arow-desc">"{{ c.description }}"</p>
+                  @if (c.evidence?.length) {
+                    <div class="ev-grid">
+                      @for (img of c.evidence; track $index) {
+                        <img class="ev-thumb" [src]="img" alt="evidence" (click)="lightbox.set(img)" />
+                      }
+                    </div>
+                  }
                 </div>
                 <div class="d-flex flex-column align-items-end gap-2">
                   <span class="nb-badge nb-badge-warning">Open</span>
@@ -174,9 +148,21 @@ import { ToastService }  from '../../core/services/toast.service';
         </div>
       }
 
+      <!-- Evidence lightbox -->
+      @if (lightbox()) {
+        <div class="lightbox" (click)="lightbox.set(null)">
+          <img [src]="lightbox()" alt="evidence" />
+        </div>
+      }
+
     </div>
   `,
   styles: [`
+    .ev-grid { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
+    .ev-thumb { width:72px; height:72px; object-fit:cover; border-radius:var(--radius-sm); border:1px solid var(--nb-border); cursor:pointer; transition:transform .12s; }
+    .ev-thumb:hover { transform:scale(1.05); }
+    .lightbox { position:fixed; inset:0; background:rgba(0,0,0,.8); z-index:10000; display:flex; align-items:center; justify-content:center; padding:2rem; cursor:zoom-out; }
+    .lightbox img { max-width:90vw; max-height:90vh; border-radius:var(--radius-md); box-shadow:var(--shadow-lg); }
     .kpi-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:12px; }
     .kpi-card { background:#fff; border:1px solid var(--nb-border); border-radius:var(--radius-lg); padding:1.25rem; display:flex; align-items:center; gap:14px; }
     .kpi-icon { width:48px; height:48px; border-radius:var(--radius-md); display:flex; align-items:center; justify-content:center; font-size:1.3rem; flex-shrink:0; }
@@ -209,19 +195,18 @@ import { ToastService }  from '../../core/services/toast.service';
   `]
 })
 export class AdminDashboardComponent implements OnInit {
-  tab              = signal('providers');
+  tab              = signal('complaints');
   loadingTab       = signal(false);
   kpis             = signal<any[]>([]);
-  pendingProviders = signal<any[]>([]);
   openComplaints   = signal<any[]>([]);
   users            = signal<any[]>([]);
+  lightbox         = signal<string | null>(null);
   userSearch       = '';
   private searchTimer: any;
 
   tabs = [
-    { id:'providers',  label:'Pending Providers', icon:'bi-person-badge',        tid:'pending-providers-tab', badge:0 },
-    { id:'complaints', label:'Open Complaints',   icon:'bi-exclamation-triangle', tid:'complaints-tab',        badge:0 },
-    { id:'users',      label:'All Users',          icon:'bi-people',               tid:'users-tab',             badge:0 },
+    { id:'complaints', label:'Open Complaints',   icon:'bi-exclamation-triangle', tid:'complaints-tab', badge:0 },
+    { id:'users',      label:'All Users',          icon:'bi-people',               tid:'users-tab',      badge:0 },
   ];
 
   constructor(private api: ApiService, private toast: ToastService) {}
@@ -247,17 +232,12 @@ export class AdminDashboardComponent implements OnInit {
         ]);
       },
     });
-    this.loadTab('providers');
+    this.loadTab('complaints');
   }
 
   loadTab(id: string) {
     this.loadingTab.set(true);
-    if (id === 'providers') {
-      this.api.get<any>('/admin/providers/pending').subscribe({
-        next: res => { this.pendingProviders.set(res.data ?? []); this.loadingTab.set(false); },
-        error: () => this.loadingTab.set(false),
-      });
-    } else if (id === 'complaints') {
+    if (id === 'complaints') {
       this.api.get<any>('/complaints').subscribe({
         next: res => {
           this.openComplaints.set((res.data ?? []).filter((c: any) => c.status === 'open'));
@@ -271,26 +251,6 @@ export class AdminDashboardComponent implements OnInit {
         error: () => this.loadingTab.set(false),
       });
     }
-  }
-
-  approveProvider(id: string) {
-    this.api.put<any>(`/providers/${id}/status`, { status:'active' }).subscribe({
-      next: () => {
-        this.toast.success('Provider approved and notified!');
-        this.pendingProviders.update(list => list.filter(p => p._id !== id));
-      },
-      error: () => this.toast.error('Could not approve provider.'),
-    });
-  }
-
-  rejectProvider(id: string) {
-    this.api.put<any>(`/providers/${id}/status`, { status:'suspended' }).subscribe({
-      next: () => {
-        this.toast.info('Provider rejected.');
-        this.pendingProviders.update(list => list.filter(p => p._id !== id));
-      },
-      error: () => this.toast.error('Could not reject provider.'),
-    });
   }
 
   resolveComplaint(id: string) {
@@ -324,14 +284,5 @@ export class AdminDashboardComponent implements OnInit {
         error: () => this.loadingTab.set(false),
       });
     }, 400);
-  }
-
-  catColor(id: string) {
-    const m: Record<string,string> = { home_services:'#2563A8', education:'#059669', food:'#D97706', wellness:'#7C3AED', events:'#DC2626' };
-    return m[id] ?? '#1A3C5E';
-  }
-  catLabel(id: string) {
-    const m: Record<string,string> = { home_services:'Home Services', education:'Education', food:'Food', wellness:'Wellness', events:'Events' };
-    return m[id] ?? id;
   }
 }
