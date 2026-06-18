@@ -30,7 +30,7 @@ jobs:
 
       - name: Install
         working-directory: ./dev
-        run: npm ci
+        run: npm install --legacy-peer-deps
 
       - name: Build (production)
         working-directory: ./dev
