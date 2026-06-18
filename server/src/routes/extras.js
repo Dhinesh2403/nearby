@@ -1,6 +1,9 @@
 // src/routes/reviews.js
 const router = require('express').Router();
-const { Review, Booking, Provider, User } = require('../models');
+const {
+  Review, Provider, User, Complaint,
+  ContactLog, ProfileView, AdReward, AppSettings, AdminLog,
+} = require('../models');
 const { ok, fail, pushNotify } = require('../utils/helpers');
 const { protect, authorize } = require('../middleware/auth');
 
@@ -14,53 +17,44 @@ router.get('/provider/:id', async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
-// POST /api/reviews — customer submits after completed booking
-router.post('/', protect, authorize('customer'), async (req, res, next) => {
+// POST /api/reviews/direct — "Click to Rate" — one review per customer per provider
+// One direct review per customer per provider; re-rating updates it.
+router.post('/direct', protect, authorize('customer'), async (req, res, next) => {
   try {
-    const { bookingId, rating, review, tags, images } = req.body;
-    if (!bookingId || !rating)
-      return fail(res, 'bookingId and rating are required.');
+    const { providerId, rating, review } = req.body;
+    if (!providerId || !rating) return fail(res, 'providerId and rating are required.');
+    if (rating < 1 || rating > 5) return fail(res, 'Rating must be 1–5.');
 
-    const booking = await Booking.findById(bookingId);
-    if (!booking)              return fail(res, 'Booking not found.', 404);
-    if (booking.status !== 'completed')
-      return fail(res, 'Can only review completed bookings.', 403);
-    if (booking.customerId.toString() !== req.user._id.toString())
-      return fail(res, 'Not your booking.', 403);
+    const provider = await Provider.findById(providerId);
+    if (!provider) return fail(res, 'Provider not found.', 404);
 
-    const exists = await Review.findOne({ bookingId });
-    if (exists) return fail(res, 'Review already submitted for this booking.', 409);
+    // Upsert the customer's review for this provider (one per customer per provider).
+    const r = await Review.findOneAndUpdate(
+      { providerId, customerId: req.user._id },
+      { rating, review: review || '' },
+      { new: true, upsert: true, setDefaultsOnInsert: true }
+    );
 
-    const r = await Review.create({
-      bookingId,
-      customerId: req.user._id,
-      providerId: booking.providerId,
-      rating, review: review || '', tags: tags || [],
-      images: Array.isArray(images) ? images : [],
-    });
-
-    // Recalculate provider rating average
+    // Recalculate the provider's rating average across all visible reviews.
     const stats = await Review.aggregate([
-      { $match: { providerId: booking.providerId } },
+      { $match: { providerId: provider._id } },
       { $group: { _id: null, avg: { $avg: '$rating' }, count: { $sum: 1 } } },
     ]);
-    if (stats.length > 0) {
-      await Provider.findByIdAndUpdate(booking.providerId, {
+    if (stats.length) {
+      await Provider.findByIdAndUpdate(provider._id, {
         ratingAvg:   parseFloat(stats[0].avg.toFixed(1)),
         ratingCount: stats[0].count,
       });
     }
 
-    // Notify the provider (live toast + bell badge)
-    const provider = await Provider.findById(booking.providerId);
-    await pushNotify(req.app.locals.io, provider?.userId, {
+    await pushNotify(req.app.locals.io, provider.userId, {
       type:  'review',
-      title: `New ${rating}★ review`,
-      body:  (review && review.trim()) ? `"${review.trim().slice(0, 80)}"` : 'A customer reviewed your service.',
+      title: `New ${rating}★ rating`,
+      body:  (review && review.trim()) ? `"${review.trim().slice(0, 80)}"` : 'A customer rated your service.',
       link:  '/dashboard/provider',
     });
 
-    res.status(201).json({ success: true, message: 'Review submitted.', data: r });
+    res.status(201).json({ success: true, message: 'Thanks for rating!', data: r });
   } catch (e) { next(e); }
 });
 
@@ -82,7 +76,6 @@ module.exports = router;
 // src/routes/complaints.js
 // ─────────────────────────────────────────────────────────────
 const complaintRouter = require('express').Router();
-const { Complaint }   = require('../models');
 
 complaintRouter.get('/', protect, async (req, res, next) => {
   try {
@@ -97,15 +90,28 @@ complaintRouter.get('/', protect, async (req, res, next) => {
 
 complaintRouter.post('/', protect, async (req, res, next) => {
   try {
-    const { against, bookingId, type, description, evidence } = req.body;
+    const settings = await AppSettings.getSingleton();
+    if (!settings.complaintsEnabled)
+      return fail(res, 'Complaint submissions are currently disabled.', 403);
+
+    const { against, type, description, evidence } = req.body;
     if (!against || !type || !description)
       return fail(res, 'against, type and description are required.');
     const c = await Complaint.create({
       raisedBy: req.user._id,
-      against, bookingId: bookingId || null,
-      type, description,
+      against, type, description,
       evidence: Array.isArray(evidence) ? evidence : [],
     });
+
+    // 8.3 — notify every admin that a complaint was filed.
+    const admins = await User.find({ role: 'admin' }).select('_id');
+    await Promise.all(admins.map(a => pushNotify(req.app.locals.io, a._id, {
+      type:  'complaint',
+      title: 'New complaint filed',
+      body:  `${req.user.name} reported a ${type} issue.`,
+      link:  '/admin',
+    })));
+
     res.status(201).json({ success: true, message: 'Complaint submitted.', data: c });
   } catch (e) { next(e); }
 });
@@ -150,25 +156,118 @@ const adminRouter = require('express').Router();
 
 adminRouter.use(protect, authorize('admin'));
 
+// Helper — append an audit-log entry (5.14). Non-fatal on failure.
+const logAdmin = async (req, action, detail = '') => {
+  try {
+    await AdminLog.create({ adminId: req.user._id, adminName: req.user.name, action, detail });
+  } catch (_) { /* ignore */ }
+};
+
+// GET /api/admin/dashboard — overview counts (5.3)
 adminRouter.get('/dashboard', async (req, res, next) => {
   try {
-    const [users, providers, bookings, complaints] = await Promise.all([
-      User.countDocuments(),
+    const [customers, providers, contacts, complaints, suspended] = await Promise.all([
+      User.countDocuments({ role: 'customer' }),
       Provider.countDocuments({ status: 'active' }),
-      Booking.countDocuments(),
+      ContactLog.countDocuments(),
       Complaint.countDocuments({ status: 'open' }),
+      Provider.countDocuments({ status: 'suspended' }),
     ]);
-    ok(res, { users, activeProviders: providers, bookings, openComplaints: complaints });
+    const settings  = await AppSettings.getSingleton();
+    const activeAds = settings.adsEnabled;
+    ok(res, {
+      customers, activeProviders: providers, contacts,
+      openComplaints: complaints, suspendedProviders: suspended,
+      activeAds,
+      // legacy alias still consumed by older UI
+      users: customers + providers,
+    });
   } catch (e) { next(e); }
 });
 
-adminRouter.get('/providers/pending', async (req, res, next) => {
+// GET /api/admin/providers — all providers w/ per-provider stats (5.4, 5.6)
+adminRouter.get('/providers', async (req, res, next) => {
   try {
-    const list = await Provider.find({ status: 'pending' }).populate('userId', 'name email phone');
-    ok(res, list);
+    const providers = await Provider.find().populate('userId', 'name email phone isActive').sort({ createdAt: -1 });
+    const withStats = await Promise.all(providers.map(async (p) => {
+      const [views, contacts, adWatches] = await Promise.all([
+        ProfileView.countDocuments({ providerId: p._id }),
+        ContactLog.countDocuments({ providerId: p._id }),
+        AdReward.countDocuments({ providerId: p._id }),
+      ]);
+      return {
+        _id: p._id, businessName: p.businessName, category: p.category,
+        subCategory: p.subCategory, status: p.status, isVerified: p.isVerified,
+        user: p.userId,
+        stats: { views, contacts, ratingAvg: p.ratingAvg, ratingCount: p.ratingCount, adWatches },
+      };
+    }));
+    ok(res, withStats);
   } catch (e) { next(e); }
 });
 
+// GET /api/admin/customers — all customers w/ activity (5.5)
+adminRouter.get('/customers', async (req, res, next) => {
+  try {
+    const customers = await User.find({ role: 'customer' }).sort({ createdAt: -1 });
+    const withActivity = await Promise.all(customers.map(async (c) => {
+      const [contacts, views] = await Promise.all([
+        ContactLog.countDocuments({ customerId: c._id }),
+        ProfileView.countDocuments({ customerId: c._id }),
+      ]);
+      return {
+        _id: c._id, name: c.name, email: c.email, phone: c.phone,
+        isActive: c.isActive, createdAt: c.createdAt,
+        activity: { contacts, profileViews: views },
+      };
+    }));
+    ok(res, withActivity);
+  } catch (e) { next(e); }
+});
+
+// PUT /api/admin/providers/:id/ban — suspend a provider (5.8)
+adminRouter.put('/providers/:id/ban', async (req, res, next) => {
+  try {
+    const p = await Provider.findByIdAndUpdate(
+      req.params.id,
+      { status: 'suspended', isVerified: false, banReason: req.body.reason || '' },
+      { new: true }
+    ).populate('userId', 'name');
+    if (!p) return fail(res, 'Provider not found.', 404);
+
+    await logAdmin(req, 'ban_provider', `${p.businessName} (${req.body.reason || 'no reason'})`);
+    await pushNotify(req.app.locals.io, p.userId?._id, {
+      type:  'account',
+      title: 'Listing suspended',
+      body:  'Your listing has been suspended by the admin.' + (req.body.reason ? ` Reason: ${req.body.reason}` : ''),
+      link:  '/dashboard/provider',
+    });
+    ok(res, p, 'Provider suspended.');
+  } catch (e) { next(e); }
+});
+
+// PUT /api/admin/providers/:id/unban — reinstate a provider (5.11)
+adminRouter.put('/providers/:id/unban', async (req, res, next) => {
+  try {
+    const p = await Provider.findByIdAndUpdate(
+      req.params.id,
+      { status: 'active', isVerified: true, banReason: '' },
+      { new: true }
+    ).populate('userId', 'name');
+    if (!p) return fail(res, 'Provider not found.', 404);
+
+    await logAdmin(req, 'unban_provider', p.businessName);
+    await pushNotify(req.app.locals.io, p.userId?._id, {
+      type:  'account',
+      title: 'Listing reinstated',
+      body:  'Good news — your listing is live again.',
+      link:  '/dashboard/provider',
+    });
+    ok(res, p, 'Provider reinstated.');
+  } catch (e) { next(e); }
+});
+
+// ── Users (kept for backward compatibility) ────────────────────
 adminRouter.get('/users', async (req, res, next) => {
   try {
     const { search } = req.query;
@@ -187,8 +286,86 @@ adminRouter.put('/users/:id/ban', async (req, res, next) => {
   try {
     const u = await User.findByIdAndUpdate(req.params.id, { isActive: false }, { new: true });
     if (!u) return fail(res, 'User not found.', 404);
+    await logAdmin(req, 'ban_user', u.name);
     ok(res, u, 'User banned.');
   } catch (e) { next(e); }
 });
 
-module.exports = { reviewRouter: router, complaintRouter, notifRouter, adminRouter };
+// ── App Settings (5.12) ────────────────────────────────────────
+adminRouter.get('/settings', async (req, res, next) => {
+  try { ok(res, await AppSettings.getSingleton()); } catch (e) { next(e); }
+});
+
+adminRouter.put('/settings', async (req, res, next) => {
+  try {
+    const allowed = [
+      'otpEnabled','otpCustomerEnabled','otpProviderEnabled','adsEnabled',
+      'rewardedAdsEnabled','whoVisitedEnabled','adsRequiredCount',
+      'registrationsEnabled','complaintsEnabled','featuredCategories',
+      'bannerAdUnitId','rewardedAdUnitId',
+    ];
+    const s = await AppSettings.getSingleton();
+    const changed = [];
+    for (const key of allowed) {
+      if (req.body[key] !== undefined && JSON.stringify(s[key]) !== JSON.stringify(req.body[key])) {
+        changed.push(key);
+        s[key] = req.body[key];
+      }
+    }
+    await s.save();
+    if (changed.length) await logAdmin(req, 'update_settings', changed.join(', '));
+    ok(res, s, 'Settings updated.');
+  } catch (e) { next(e); }
+});
+
+// PUT /api/admin/announcement — homepage global banner (5.13)
+adminRouter.put('/announcement', async (req, res, next) => {
+  try {
+    const s = await AppSettings.getSingleton();
+    s.announcement = { active: !!req.body.active, text: req.body.text || '' };
+    await s.save();
+    await logAdmin(req, 'update_announcement', s.announcement.active ? s.announcement.text : 'disabled');
+    ok(res, s.announcement, 'Announcement updated.');
+  } catch (e) { next(e); }
+});
+
+// GET /api/admin/logs — admin activity log (5.14)
+adminRouter.get('/logs', async (req, res, next) => {
+  try {
+    const logs = await AdminLog.find().sort({ createdAt: -1 }).limit(100);
+    ok(res, logs);
+  } catch (e) { next(e); }
+});
+
+// ─────────────────────────────────────────────────────────────
+// PUBLIC settings router — homepage banner, banned-scam alert,
+// and feature flags the frontend needs without admin auth.
+// ─────────────────────────────────────────────────────────────
+const settingsRouter = require('express').Router();
+
+settingsRouter.get('/public', async (req, res, next) => {
+  try {
+    const s = await AppSettings.getSingleton();
+    // Providers suspended in the last 14 days → scam alert banner (5.10)
+    const since = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
+    const banned = await Provider.find({ status: 'suspended', updatedAt: { $gte: since } })
+      .select('businessName').limit(10);
+    ok(res, {
+      announcement:         s.announcement,
+      otpEnabled:           s.otpEnabled,
+      otpCustomerEnabled:   s.otpCustomerEnabled,
+      otpProviderEnabled:   s.otpProviderEnabled,
+      adsEnabled:           s.adsEnabled,
+      rewardedAdsEnabled:   s.rewardedAdsEnabled,
+      whoVisitedEnabled:    s.whoVisitedEnabled,
+      registrationsEnabled: s.registrationsEnabled,
+      complaintsEnabled:    s.complaintsEnabled,
+      featuredCategories:   s.featuredCategories,
+      bannerAdUnitId:       s.bannerAdUnitId,
+      rewardedAdUnitId:     s.rewardedAdUnitId,
+      recentlyBanned:       banned.map(b => b.businessName),
+    });
+  } catch (e) { next(e); }
+});
+
+module.exports = { reviewRouter: router, complaintRouter, notifRouter, adminRouter, settingsRouter };

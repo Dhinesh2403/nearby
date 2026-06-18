@@ -1,64 +1,47 @@
 // src/routes/auth.js
 const router = require('express').Router();
 const jwt    = require('jsonwebtoken');
-const bcrypt   = require('bcrypt');
-const { User } = require('../models');
-const { generateTokens } = require('../utils/helpers');
-const { ok, fail }       = require('../utils/helpers');
+const { User, AppSettings } = require('../models');
+const crypto = require('crypto');
+const { ok, fail, generateTokens, pushNotify } = require('../utils/helpers');
 const { protect }        = require('../middleware/auth');
+const { isFirebaseEnabled, verifyIdToken } = require('../config/firebase');
 
-// ── POST /api/auth/register ────────────────────────────────────
-router.post('/register', async (req, res, next) => {
+// Normalise a Firebase phone number (E.164, e.g. +919876543210) to the
+// 10-digit form stored on existing accounts so lookups stay consistent.
+const toLocalPhone = (e164 = '') => {
+  const digits = e164.replace(/\D/g, '');
+  if (digits.length === 12 && digits.startsWith('91')) return digits.slice(2);
+  if (digits.length === 11 && digits.startsWith('0'))  return digits.slice(1);
+  return digits.slice(-10);
+};
+
+// ── POST /api/auth/check-phone ─────────────────────────────────
+// Step 1 of login: check if a phone number has an account and whether
+// a password is set, so the frontend knows which flow to show next.
+router.post('/check-phone', async (req, res, next) => {
   try {
-    const { name, email, phone, password, role, district, area, city } = req.body;
-    if (!name || !email || !phone || !password)
-      return fail(res, 'name, email, phone and password are required.');
-
-    const exists = await User.findOne({ $or: [{ email }, { phone }] });
-    if (exists)
-      return fail(res, exists.email === email
-        ? 'Email already registered.'
-        : 'Phone already registered.', 409);
-
-    const user = await User.create({
-      name, email, phone,
-      passwordHash: password,          // pre-save hook bcrypts this
-      role: ['customer','provider'].includes(role) ? role : 'customer',
-      location: {
-        district: district || '',
-        area:     area     || '',
-        city:     city     || 'Chennai',
-      },
-    });
-
-    const { accessToken, refreshToken } = generateTokens(user._id);
-    await User.findByIdAndUpdate(user._id, { refreshToken });
-
-    res.status(201).json({
-      success: true,
-      message: 'Account created.',
-      data: {
-        user: { _id: user._id, name: user.name, email: user.email, role: user.role, avatar: user.avatar, location: user.location },
-        accessToken,
-        refreshToken,
-      },
-    });
+    const { phone } = req.body;
+    if (!phone) return fail(res, 'phone is required.');
+    const user = await User.findOne({ phone }).select('hasPassword').lean();
+    ok(res, { exists: !!user, hasPassword: !!(user?.hasPassword) });
   } catch (e) { next(e); }
 });
 
-// ── POST /api/auth/login ───────────────────────────────────────
-router.post('/login', async (req, res, next) => {
+// ── POST /api/auth/login-phone ─────────────────────────────────
+// Password-based login for users who have already set a password.
+router.post('/login-phone', async (req, res, next) => {
   try {
-    const { email, password } = req.body;
-    if (!email || !password)
-      return fail(res, 'Email and password are required.');
+    const { phone, password } = req.body;
+    if (!phone || !password) return fail(res, 'phone and password are required.');
 
-    const user = await User.findOne({ email }).select('+passwordHash');
-    if (!user)    return fail(res, 'Invalid email or password.', 401);
+    const user = await User.findOne({ phone }).select('+passwordHash');
+    if (!user)          return fail(res, 'No account found with this number.', 404);
     if (!user.isActive) return fail(res, 'Account suspended.', 403);
+    if (!user.hasPassword) return fail(res, 'Please verify your number to sign in.', 400);
 
     const match = await user.isPasswordCorrect(password, user.passwordHash);
-    if (!match)   return fail(res, 'Invalid email or password.', 401);
+    if (!match) return fail(res, 'Incorrect password.', 401);
 
     const { accessToken, refreshToken } = generateTokens(user._id);
     await User.findByIdAndUpdate(user._id, { refreshToken });
@@ -68,6 +51,107 @@ router.post('/login', async (req, res, next) => {
       accessToken,
       refreshToken,
     }, 'Login successful.');
+  } catch (e) { next(e); }
+});
+
+// ── POST /api/auth/firebase-check ──────────────────────────────
+// Called after OTP is confirmed on the frontend. Verifies the token and
+// tells the client whether this is a new user (needs profile step) or
+// an existing user (goes to set-password step).
+router.post('/firebase-check', async (req, res, next) => {
+  try {
+    if (!isFirebaseEnabled())
+      return fail(res, 'Phone verification is not configured on the server.', 503);
+
+    const { idToken } = req.body;
+    if (!idToken) return fail(res, 'idToken is required.');
+
+    let decoded;
+    try { decoded = await verifyIdToken(idToken); }
+    catch { return fail(res, 'Invalid or expired verification token.', 401); }
+
+    const phone = toLocalPhone(decoded.phone_number || '');
+    if (!phone) return fail(res, 'Token has no verified phone number.', 400);
+
+    const existing = await User.findOne({ phone }).lean();
+    ok(res, { isNewUser: !existing });
+  } catch (e) { next(e); }
+});
+
+// ── POST /api/auth/firebase-verify ─────────────────────────────
+// Final OTP step: find-or-create account, apply profile + password for
+// new users, or update password for returning users (forgot / first-time set).
+router.post('/firebase-verify', async (req, res, next) => {
+  try {
+    if (!isFirebaseEnabled())
+      return fail(res, 'Phone verification is not configured on the server.', 503);
+
+    const { idToken, role, profile, password } = req.body;
+    if (!idToken) return fail(res, 'idToken is required.');
+
+    let decoded;
+    try { decoded = await verifyIdToken(idToken); }
+    catch { return fail(res, 'Invalid or expired verification token.', 401); }
+
+    const e164  = decoded.phone_number;
+    if (!e164) return fail(res, 'Token has no verified phone number.', 400);
+    const phone = toLocalPhone(e164);
+
+    const newRole = role === 'provider' ? 'provider' : 'customer';
+
+    let user = await User.findOne({ phone }).select('+passwordHash');
+
+    if (!user) {
+      // New user — check provider registration gate
+      if (newRole === 'provider') {
+        const settings = await AppSettings.getSingleton();
+        if (!settings.registrationsEnabled)
+          return fail(res, 'New provider registrations are temporarily closed.', 403);
+      }
+
+      const name  = profile?.name?.trim()  || `User ${phone.slice(-4)}`;
+      const email = profile?.email?.trim() || `${phone}@phone.nearby`;
+      const city  = profile?.city?.trim()  || '';
+
+      user = await User.create({
+        name,
+        email,
+        phone,
+        passwordHash: password || crypto.randomBytes(24).toString('hex'),
+        hasPassword:  !!password,
+        role: newRole,
+        location: { city, area: city, district: city },
+      });
+    } else {
+      // Returning user — update password and/or profile fields if provided
+      let changed = false;
+
+      if (profile?.name?.trim()  && user.name.startsWith('User '))          { user.name = profile.name.trim(); changed = true; }
+      if (profile?.email?.trim() && user.email.endsWith('@phone.nearby'))   { user.email = profile.email.trim(); changed = true; }
+      if (profile?.city?.trim())                                             { user.location.city = profile.city.trim(); changed = true; }
+      if (password) { user.passwordHash = password; user.hasPassword = true; changed = true; }
+
+      if (changed) await user.save();
+    }
+
+    if (!user.isActive) return fail(res, 'Account suspended.', 403);
+
+    const { accessToken, refreshToken } = generateTokens(user._id);
+    await User.findByIdAndUpdate(user._id, { refreshToken });
+
+    await pushNotify(req.app.locals.io, user._id, {
+      type:  'account',
+      title: 'Phone verified ✓',
+      body:  'Your number is verified. You can now contact providers directly.',
+      link:  '/',
+    });
+
+    const fresh = await User.findById(user._id).lean();
+    ok(res, {
+      user: { _id: fresh._id, name: fresh.name, email: fresh.email, role: fresh.role, avatar: fresh.avatar, location: fresh.location },
+      accessToken,
+      refreshToken,
+    }, 'Phone verified.');
   } catch (e) { next(e); }
 });
 
@@ -111,13 +195,11 @@ router.put('/me', protect, async (req, res, next) => {
   try {
     const { name, phone, city, address, district, area, password } = req.body;
 
-    // Phone must stay unique across users
     if (phone && phone !== req.user.phone) {
       const taken = await User.findOne({ phone, _id: { $ne: req.user._id } });
       if (taken) return fail(res, 'Phone already in use by another account.', 409);
     }
 
-    // Load the full doc so the pre-save hook can hash a new password
     const user = await User.findById(req.user._id).select('+passwordHash');
     if (!user) return fail(res, 'User not found.', 404);
 
@@ -129,7 +211,8 @@ router.put('/me', protect, async (req, res, next) => {
     if (area !== undefined)     user.location.area = area;
     if (password) {
       if (password.length < 6) return fail(res, 'Password must be at least 6 characters.');
-      user.passwordHash = password;          // pre-save hook bcrypts this
+      user.passwordHash = password;
+      user.hasPassword  = true;
     }
 
     await user.save();

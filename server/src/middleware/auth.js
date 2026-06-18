@@ -36,4 +36,30 @@ const authorize = (...roles) => (req, res, next) => {
   next();
 };
 
-module.exports = { protect, authorize };
+// firebaseAuth — verify a Firebase ID token and attach the verified phone
+// number to the request (7.8). Reusable on any route that must guarantee a
+// freshly phone-verified caller. Token is read from `idToken` (body) or a
+// `X-Firebase-Token` header.
+const { isFirebaseEnabled, verifyIdToken } = require('../config/firebase');
+
+const firebaseAuth = async (req, res, next) => {
+  try {
+    if (!isFirebaseEnabled())
+      return fail(res, 'Phone verification is not configured on the server.', 503);
+
+    const idToken = req.body?.idToken || req.headers['x-firebase-token'];
+    if (!idToken) return fail(res, 'Firebase ID token is required.', 401);
+
+    const decoded = await verifyIdToken(idToken);
+    if (!decoded?.phone_number)
+      return fail(res, 'Token has no verified phone number.', 401);
+
+    req.firebase = decoded;
+    req.firebasePhone = decoded.phone_number;
+    next();
+  } catch (err) {
+    return fail(res, 'Invalid or expired verification token.', 401);
+  }
+};
+
+module.exports = { protect, authorize, firebaseAuth };
