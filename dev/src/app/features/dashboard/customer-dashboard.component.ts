@@ -3,8 +3,9 @@ import { Component, OnInit, signal } from '@angular/core';
 import { CommonModule }  from '@angular/common';
 import { RouterLink }    from '@angular/router';
 import { AuthService }   from '../../core/auth/auth.service';
-import { ApiService, Booking, ApiResponse } from '../../core/services/api.service';
-import { ToastService }  from '../../core/services/toast.service';
+import { ApiService, ApiResponse } from '../../core/services/api.service';
+
+interface ContactEntry { providerId: any; channel: string; createdAt: string; }
 
 @Component({
   selector: 'app-customer-dashboard',
@@ -16,11 +17,11 @@ import { ToastService }  from '../../core/services/toast.service';
       <!-- Header -->
       <div class="dash-hdr mb-4" data-testid="dashboard-welcome">
         <div>
-          <h2 class="section-title">Welcome back, {{ firstName() }}! 👋</h2>
-          <p class="section-sub mb-0">Here's what's happening with your bookings</p>
+          <h2 class="section-title">Welcome back, {{ firstName() }}!</h2>
+          <p class="section-sub mb-0">Find and connect with trusted local providers</p>
         </div>
         <a routerLink="/browse" class="btn-nb-primary btn">
-          <i class="bi bi-plus me-1"></i>New Booking
+          <i class="bi bi-search me-1"></i>Find Services
         </a>
       </div>
 
@@ -41,48 +42,36 @@ import { ToastService }  from '../../core/services/toast.service';
 
       <div class="row g-4">
 
-        <!-- Active Bookings -->
-        <div class="col-md-8" data-testid="active-bookings-section">
+        <!-- My Contacts -->
+        <div class="col-md-8" data-testid="contacts-section">
           <div class="ds-card">
             <div class="ds-hdr">
-              <h6 class="ds-title">Active Bookings</h6>
-              <span class="nb-badge nb-badge-primary">{{ activeBookings().length }}</span>
+              <h6 class="ds-title">My Contacts</h6>
+              <span class="nb-badge nb-badge-primary">{{ contacts().length }}</span>
             </div>
-            @if (loadingBookings()) {
+            @if (loadingContacts()) {
               <div class="text-center py-3"><div class="nb-spinner" style="margin:auto"></div></div>
-            } @else if (activeBookings().length === 0) {
+            } @else if (contacts().length === 0) {
               <p class="text-muted-nb text-center py-3" style="font-size:.875rem">
-                No active bookings. <a routerLink="/browse">Find a provider →</a>
+                No contacts yet. <a routerLink="/browse">Find a provider →</a>
               </p>
             } @else {
-              @for (b of activeBookings(); track b._id) {
-                <div class="bk-row" data-testid="booking-card">
-                  <div class="bk-av" [style.background]="providerColor(b.providerId?.category)">
-                    {{ (b.providerId?.businessName || 'P').charAt(0) }}
+              @for (c of contacts(); track $index) {
+                <div class="bk-row">
+                  <div class="bk-av" [style.background]="providerColor(c.providerId?.category)">
+                    {{ (c.providerId?.businessName || 'P').charAt(0) }}
                   </div>
                   <div class="flex-grow-1">
-                    <p class="bk-prov">{{ b.providerId?.businessName || 'Provider' }}</p>
+                    <p class="bk-prov">{{ c.providerId?.businessName || 'Provider' }}</p>
                     <p class="bk-meta">
-                      <i class="bi bi-calendar3 me-1"></i>
-                      {{ b.scheduledDate | date:'dd MMM yyyy' }} · {{ b.scheduledTime }}
-                      @if (b.bookingType === 'remote') {
-                        · <i class="bi bi-camera-video ms-1"></i> Online
-                      }
+                      @if (c.channel === 'call') { <i class="bi bi-telephone-fill me-1"></i>Called }
+                      @else { <i class="bi bi-whatsapp me-1"></i>WhatsApp }
+                      · {{ c.createdAt | date:'dd MMM yyyy' }}
                     </p>
                   </div>
-                  <div class="d-flex flex-column align-items-end gap-1">
-                    <span class="nb-badge" [class]="statusClass(b.status)" data-testid="booking-status">
-                      {{ b.status | titlecase }}
-                    </span>
-                    @if (b.status === 'accepted' && b.bookingType === 'remote' && b.meetingLink) {
-                      <a [href]="b.meetingLink" target="_blank" class="join-btn">
-                        <i class="bi bi-camera-video me-1"></i>Join
-                      </a>
-                    }
-                    <a [routerLink]="['/booking', b._id]" class="details-link">
-                      Manage <i class="bi bi-chevron-right"></i>
-                    </a>
-                  </div>
+                  <a [routerLink]="['/provider', c.providerId?._id]" class="details-link">
+                    View <i class="bi bi-chevron-right"></i>
+                  </a>
                 </div>
               }
             }
@@ -92,21 +81,14 @@ import { ToastService }  from '../../core/services/toast.service';
         <!-- Right column -->
         <div class="col-md-4">
 
-          <!-- History -->
-          <div class="ds-card mb-3" data-testid="booking-history-section">
-            <div class="ds-hdr"><h6 class="ds-title">Recent History</h6></div>
-            @if (completedBookings().length === 0) {
-              <p class="text-muted-nb text-center py-2" style="font-size:.8rem">No completed bookings yet.</p>
-            }
-            @for (b of completedBookings().slice(0,4); track b._id) {
-              <a class="hist-row" [routerLink]="['/booking', b._id]">
-                <div>
-                  <p class="bk-prov mb-0" style="font-size:.875rem">{{ b.providerId?.businessName || 'Provider' }}</p>
-                  <p class="bk-meta mb-0">{{ b.scheduledDate | date:'MMM yyyy' }}</p>
-                </div>
-                <span class="rate-link"><i class="bi bi-star-fill me-1"></i>Rate</span>
-              </a>
-            }
+          <!-- Chats -->
+          <div class="ds-card mb-3">
+            <div class="ds-hdr"><h6 class="ds-title">Conversations</h6></div>
+            <a routerLink="/chats" class="qa-full-item">
+              <i class="bi bi-chat-dots-fill"></i>
+              <span>Open My Chats</span>
+              <i class="bi bi-chevron-right ms-auto"></i>
+            </a>
           </div>
 
           <!-- Quick actions -->
@@ -147,82 +129,54 @@ import { ToastService }  from '../../core/services/toast.service';
     .bk-av    { width:38px; height:38px; min-width:38px; border-radius:10px; display:flex; align-items:center; justify-content:center; font-family:var(--font-display); font-weight:700; color:#fff; }
     .bk-prov  { font-family:var(--font-display); font-weight:600; font-size:.875rem; margin:0; }
     .bk-meta  { font-size:.75rem; color:var(--nb-text-muted); margin:0; }
-    .cancel-btn { background:none; border:none; color:var(--nb-danger); font-size:.72rem; cursor:pointer; padding:0; }
-    .join-btn { background:#D1FAE5; color:#065f46; border-radius:6px; padding:3px 10px; font-size:.72rem; font-weight:600; font-family:var(--font-display); text-decoration:none; }
     .details-link { font-size:.72rem; color:var(--nb-primary); text-decoration:none; font-weight:600; font-family:var(--font-display); }
     .details-link:hover { text-decoration:underline; }
-    .hist-row { display:flex; justify-content:space-between; align-items:center; padding:8px 0; border-bottom:1px solid var(--nb-border); text-decoration:none; color:inherit; }
-    .hist-row:last-child { border-bottom:none; }
-    .hist-row:hover .bk-prov { color:var(--nb-primary); }
-    .rate-link { color:var(--nb-accent); font-size:.75rem; font-weight:700; font-family:var(--font-display); white-space:nowrap; }
     .qa-grid  { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
     .qa-item  { display:flex; flex-direction:column; align-items:center; gap:6px; padding:14px; background:var(--nb-surface-2); border-radius:var(--radius-md); text-decoration:none; color:var(--nb-text); font-family:var(--font-display); font-size:.75rem; font-weight:600; text-transform:uppercase; letter-spacing:.04em; transition:all .2s; }
     .qa-item i { font-size:1.25rem; color:var(--nb-primary); }
     .qa-item:hover { background:#EFF6FF; color:var(--nb-primary); }
+    .qa-full-item { display:flex; align-items:center; gap:10px; padding:12px; background:var(--nb-surface-2); border-radius:var(--radius-md); text-decoration:none; color:var(--nb-text); font-size:.875rem; font-weight:600; transition:background .15s; }
+    .qa-full-item i { color:var(--nb-primary); }
+    .qa-full-item:hover { background:#EFF6FF; }
   `]
 })
 export class CustomerDashboardComponent implements OnInit {
-  allBookings       = signal<Booking[]>([]);
-  loadingBookings   = signal(true);
-
-  activeBookings    = signal<Booking[]>([]);
-  completedBookings = signal<Booking[]>([]);
-  kpis              = signal<any[]>([]);
+  contacts        = signal<ContactEntry[]>([]);
+  loadingContacts = signal(true);
+  kpis            = signal<any[]>([]);
 
   constructor(
-    public auth:   AuthService,
-    private api:   ApiService,
-    private toast: ToastService,
+    public auth: AuthService,
+    private api:  ApiService,
   ) {}
 
   firstName() { return this.auth.currentUser()?.name?.split(' ')[0] ?? ''; }
 
   ngOnInit() {
-    this.api.get<any>('/bookings').subscribe({
+    this.api.get<ApiResponse<ContactEntry[]>>('/providers/my-contacts').subscribe({
       next: res => {
-        const all: Booking[] = res.data ?? [];
-        this.allBookings.set(all);
-        this.activeBookings.set(all.filter(b => ['pending','accepted','in_progress'].includes(b.status)));
-        this.completedBookings.set(all.filter(b => b.status === 'completed'));
+        const all = res.data ?? [];
+        this.contacts.set(all);
+        const calls = all.filter(c => c.channel === 'call').length;
+        const wa    = all.filter(c => c.channel === 'whatsapp').length;
         this.kpis.set([
-          { label:'Total Bookings', val: all.length,                            icon:'bi-calendar-check', bg:'#EFF6FF', ic:'#2563A8' },
-          { label:'Completed',      val: all.filter(b=>b.status==='completed').length, icon:'bi-check-circle', bg:'#D1FAE5', ic:'#059669' },
-          { label:'Pending',        val: all.filter(b=>b.status==='pending').length,   icon:'bi-clock',        bg:'#FEF3C7', ic:'#D97706' },
-          { label:'Cancelled',      val: all.filter(b=>b.status==='cancelled').length, icon:'bi-x-circle',     bg:'#FEE2E2', ic:'#DC2626' },
+          { label:'Total Contacts', val: all.length, icon:'bi-telephone-fill',  bg:'#EFF6FF', ic:'#2563A8' },
+          { label:'Calls Made',     val: calls,       icon:'bi-telephone',       bg:'#D1FAE5', ic:'#059669' },
+          { label:'WhatsApp',       val: wa,          icon:'bi-whatsapp',        bg:'#FEF3C7', ic:'#D97706' },
+          { label:'Providers',      val: new Set(all.map(c => c.providerId?._id)).size, icon:'bi-people-fill', bg:'#F3E8FF', ic:'#7C3AED' },
         ]);
-        this.loadingBookings.set(false);
+        this.loadingContacts.set(false);
       },
       error: () => {
-        this.loadingBookings.set(false);
+        this.loadingContacts.set(false);
         this.kpis.set([
-          { label:'Total Bookings', val:0, icon:'bi-calendar-check', bg:'#EFF6FF', ic:'#2563A8' },
-          { label:'Completed',      val:0, icon:'bi-check-circle',   bg:'#D1FAE5', ic:'#059669' },
-          { label:'Pending',        val:0, icon:'bi-clock',          bg:'#FEF3C7', ic:'#D97706' },
-          { label:'Cancelled',      val:0, icon:'bi-x-circle',       bg:'#FEE2E2', ic:'#DC2626' },
+          { label:'Total Contacts', val:0, icon:'bi-telephone-fill', bg:'#EFF6FF', ic:'#2563A8' },
+          { label:'Calls Made',     val:0, icon:'bi-telephone',      bg:'#D1FAE5', ic:'#059669' },
+          { label:'WhatsApp',       val:0, icon:'bi-whatsapp',       bg:'#FEF3C7', ic:'#D97706' },
+          { label:'Providers',      val:0, icon:'bi-people-fill',    bg:'#F3E8FF', ic:'#7C3AED' },
         ]);
       },
     });
-  }
-
-  cancelBooking(id: string) {
-    if (!confirm('Cancel this booking?')) return;
-    this.api.put<any>(`/bookings/${id}/cancel`, { reason: 'Cancelled by customer' }).subscribe({
-      next: () => {
-        this.toast.success('Booking cancelled.');
-        this.ngOnInit();
-      },
-      error: () => this.toast.error('Could not cancel booking.'),
-    });
-  }
-
-  statusClass(s: string) {
-    if (s === 'accepted')    return 'nb-badge nb-badge-success';
-    if (s === 'pending')     return 'nb-badge nb-badge-warning';
-    if (s === 'rejected')    return 'nb-badge nb-badge-danger';
-    if (s === 'cancelled')   return 'nb-badge nb-badge-danger';
-    if (s === 'completed')   return 'nb-badge nb-badge-success';
-    if (s === 'in_progress') return 'nb-badge nb-badge-primary';
-    return 'nb-badge nb-badge-muted';
   }
 
   providerColor(cat: string) {

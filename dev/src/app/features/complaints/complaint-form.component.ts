@@ -2,8 +2,8 @@
 import { Component, OnInit, signal } from '@angular/core';
 import { CommonModule }  from '@angular/common';
 import { FormsModule }   from '@angular/forms';
-import { RouterLink }    from '@angular/router';
-import { ApiService, Booking, ApiResponse } from '../../core/services/api.service';
+import { RouterLink, ActivatedRoute } from '@angular/router';
+import { ApiService, ApiResponse } from '../../core/services/api.service';
 import { AuthService }   from '../../core/auth/auth.service';
 import { ToastService }  from '../../core/services/toast.service';
 
@@ -27,27 +27,19 @@ import { ToastService }  from '../../core/services/toast.service';
       } @else {
         <div class="form-card">
 
+          <!-- Provider being reported (from profile page ?against= or manual entry) -->
           <div class="mb-3">
-            <label class="nb-label">Which booking is this about?</label>
-            @if (loadingBookings()) {
-              <p class="text-muted-nb" style="font-size:.85rem">Loading your bookings…</p>
-            } @else if (bookings().length === 0) {
-              <div class="info-note mb-0">
-                <i class="bi bi-info-circle-fill"></i>
-                <p>You have no bookings yet, so there's no provider to complain about. Book a service first.</p>
+            <label class="nb-label">Reporting</label>
+            @if (directAgainst()) {
+              <div class="report-target">
+                <i class="bi bi-person-badge-fill"></i>
+                <span>{{ targetName() || 'This provider' }}</span>
               </div>
             } @else {
-              <select class="nb-input" [(ngModel)]="selectedBookingId" (ngModelChange)="onBookingChange()"
-                      data-testid="complaint-booking-select">
-                <option value="" disabled>Select the provider / service…</option>
-                @for (b of bookings(); track b._id) {
-                  <option [value]="b._id">
-                    {{ b.providerId?.businessName || 'Provider' }}
-                    @if (b.serviceId?.title) { — {{ b.serviceId?.title }} }
-                    · {{ b.scheduledDate | date:'dd MMM yyyy' }}
-                  </option>
-                }
-              </select>
+              <div class="info-note mb-0">
+                <i class="bi bi-info-circle-fill"></i>
+                <p>To report a provider, open their profile and tap the <strong>Report</strong> flag icon.</p>
+              </div>
             }
           </div>
 
@@ -127,6 +119,8 @@ import { ToastService }  from '../../core/services/toast.service';
     .ev-thumb img { width:100%;height:100%;object-fit:cover; }
     .ev-del { position:absolute;top:2px;right:2px;width:20px;height:20px;border:none;border-radius:50%;background:rgba(0,0,0,.6);color:#fff;font-size:.7rem;display:flex;align-items:center;justify-content:center;cursor:pointer; }
     .err-box { background:#FEE2E2;color:#991b1b;border-radius:var(--radius-md);padding:10px 14px;font-size:.875rem;margin-bottom:12px; }
+    .report-target { display:flex;align-items:center;gap:10px;background:#FEF2F2;border:1.5px solid #FECACA;border-radius:var(--radius-md);padding:12px 14px;font-weight:600; }
+    .report-target i { color:var(--nb-danger);font-size:1.2rem; }
     .info-note { display:flex;gap:10px;align-items:flex-start;background:#FEF3C7;border-radius:var(--radius-md);padding:12px; }
     .info-note i { color:var(--nb-warning);margin-top:2px; }
     .info-note p { margin:0;font-size:.8rem;color:var(--nb-text-muted); }
@@ -138,14 +132,13 @@ import { ToastService }  from '../../core/services/toast.service';
 })
 export class ComplaintFormComponent implements OnInit {
   form = { type:'', description:'' };
-  bookings        = signal<Booking[]>([]);
-  loadingBookings = signal(true);
-  selectedBookingId = '';
   evidence  = signal<string[]>([]);     // base64 data URLs
   loading   = signal(false);
   error     = signal('');
   submitted = signal(false);
   refId     = Math.floor(Math.random()*90000+10000);
+  directAgainst = signal('');           // provider userId when reporting from profile
+  targetName    = signal('');
 
   types = [
     { id:'no_show',   label:'No Show',      icon:'bi-calendar-x' },
@@ -155,23 +148,20 @@ export class ComplaintFormComponent implements OnInit {
     { id:'other',     label:'Other',        icon:'bi-three-dots' },
   ];
 
-  constructor(private api: ApiService, private auth: AuthService, private toast: ToastService) {}
+  constructor(
+    private api: ApiService,
+    private auth: AuthService,
+    private toast: ToastService,
+    private route: ActivatedRoute,
+  ) {}
 
   ngOnInit() {
-    // Load the customer's bookings so they can pick the provider/service
-    this.api.get<ApiResponse<Booking[]>>('/bookings').subscribe({
-      next: res => { this.bookings.set(res.data ?? []); this.loadingBookings.set(false); },
-      error: () => this.loadingBookings.set(false),
-    });
-  }
-
-  onBookingChange() { /* selection drives `against` on submit */ }
-
-  // Resolve the provider's USER id from the chosen booking
-  private resolveAgainst(): string {
-    const b = this.bookings().find(x => x._id === this.selectedBookingId);
-    const provUser = b?.providerId?.userId;
-    return typeof provUser === 'string' ? provUser : (provUser?._id ?? '');
+    // Report from a provider profile: ?against=<userId>&name=<businessName>
+    const qp = this.route.snapshot.queryParamMap;
+    if (qp.get('against')) {
+      this.directAgainst.set(qp.get('against')!);
+      this.targetName.set(qp.get('name') ?? '');
+    }
   }
 
   onFile(e: Event) {
@@ -193,19 +183,16 @@ export class ComplaintFormComponent implements OnInit {
 
   submit() {
     this.error.set('');
-    if (!this.selectedBookingId) { this.error.set('Please select the booking this is about.'); return; }
+    const against = this.directAgainst();
+    if (!against) { this.error.set('Please open a provider profile and use the Report button.'); return; }
     if (!this.form.type) { this.error.set('Please select a complaint type.'); return; }
     if (this.form.description.trim().length < 20) { this.error.set('Please describe in at least 20 characters.'); return; }
-
-    const against = this.resolveAgainst();
-    if (!against) { this.error.set('Could not identify the provider for this booking.'); return; }
 
     this.loading.set(true);
     this.api.post<any>('/complaints', {
       type:        this.form.type,
       description: this.form.description,
       against,
-      bookingId:   this.selectedBookingId,
       evidence:    this.evidence(),
     }).subscribe({
       next: () => { this.loading.set(false); this.submitted.set(true); },

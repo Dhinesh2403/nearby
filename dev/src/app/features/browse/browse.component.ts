@@ -3,227 +3,246 @@ import { Component, OnInit, signal, computed } from '@angular/core';
 import { CommonModule }  from '@angular/common';
 import { FormsModule }   from '@angular/forms';
 import { RouterLink, ActivatedRoute, Router } from '@angular/router';
-import { ApiService, Provider, PaginatedResponse } from '../../core/services/api.service';
+import { ApiService, Provider, PaginatedResponse, ApiResponse } from '../../core/services/api.service';
 import { AuthService } from '../../core/auth/auth.service';
+import { ToastService } from '../../core/services/toast.service';
+import { ChatService } from '../../core/services/chat.service';
 import { DISTRICTS }   from '../../core/constants';
+import { BannerAdComponent } from '../../shared/components/banner-ad.component';
+import { SkeletonLoaderComponent } from '../../shared/components/skeleton-loader.component';
+import { JdSearchBarComponent } from '../../shared/components/jd-search-bar.component';
+import { ContactLoginModalComponent } from '../../shared/components/contact-login-modal.component';
 
 @Component({
   selector: 'app-browse',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterLink],
+  imports: [CommonModule, FormsModule, RouterLink, BannerAdComponent, SkeletonLoaderComponent,
+            JdSearchBarComponent, ContactLoginModalComponent],
   template: `
-    <div style="min-height:80vh">
+    <div style="min-height:80vh;background:var(--nb-bg)">
 
-      <!-- FILTER BAR -->
-      <div class="fbar">
+      <!-- SEARCH BAR (persists location + service) -->
+      <div class="srch-wrap">
         <div class="container">
-          <div class="fbar-inner">
-            <div class="fsearch">
-              <i class="bi bi-search"></i>
-              <input type="text" [(ngModel)]="q" (ngModelChange)="onSearch()"
-                     placeholder="Search service or provider..." class="fsearch-input" />
-              @if (q) { <button class="fclear" (click)="q='';load()"><i class="bi bi-x"></i></button> }
-            </div>
-            <div class="fcats d-none d-md-flex">
-              @for (c of cats; track c.id) {
-                <button class="fcat" [class.active]="cat()===c.id" (click)="setCat(c.id)">
-                  <i class="bi" [class]="c.icon"></i>{{ c.label }}
-                </button>
-              }
-            </div>
-            <select class="nb-input d-md-none" style="max-width:160px;padding:6px 10px;font-size:.8rem"
-                    [(ngModel)]="mobileCat" (ngModelChange)="setCat($event)">
-              @for (c of cats; track c.id) { <option [value]="c.id">{{ c.label }}</option> }
-            </select>
-            <div class="fdistrict">
-              <i class="bi bi-geo-alt-fill"></i>
-              <select [(ngModel)]="district" (ngModelChange)="onDistrictChange()" title="District">
-                <option value="">All districts</option>
-                @for (d of districts; track d) { <option [value]="d">{{ d }}</option> }
-              </select>
-            </div>
-            <label class="ftoggle">
-              <input type="checkbox" [(ngModel)]="onlineOnly" (ngModelChange)="load()">
-              <span class="tog-track"><span class="tog-thumb"></span></span>
-              <span class="tog-lbl">Online</span>
-            </label>
-          </div>
-          @if (district()) {
-            <p class="dnote">
-              <i class="bi bi-info-circle me-1"></i>
-              Showing offline providers in <strong>{{ district() }}</strong>. Online providers are shown from all districts.
-            </p>
-          }
+          <app-jd-search-bar [initialLocation]="district()" (searchSubmit)="onSearch2($event)" />
         </div>
       </div>
 
-      <div class="container py-4">
-        <div class="row g-4">
+      <!-- FILTER CHIPS ROW (11.10) -->
+      <div class="chips-wrap" (click)="sortOpen() && sortOpen.set(false)">
+        <div class="container chips-row">
 
-          <!-- SIDEBAR -->
-          <div class="col-lg-3 d-none d-lg-block">
-            <div class="sidebar-card">
-              <p class="sb-title">Min Rating</p>
-              <div class="rb-group">
-                @for (r of [0,3,4,4.5]; track r) {
-                  <button class="rb-btn" [class.active]="minRating()===r" (click)="setRating(r)">
-                    {{ r===0 ? 'Any' : r+'+ ★' }}
+          <!-- Sort chip — custom dropdown (replaces broken native <select>) -->
+          <div class="chip-wrap" style="position:relative">
+            <button class="chip chip-sort" [class.on]="sort !== 'rating'"
+                    (click)="$event.stopPropagation(); sortOpen.set(!sortOpen())">
+              <i class="bi bi-sliders"></i>
+              {{ sortLabel() }}
+              <i class="bi" [class.bi-chevron-down]="!sortOpen()" [class.bi-chevron-up]="sortOpen()"></i>
+            </button>
+            @if (sortOpen()) {
+              <div class="chip-drop" (click)="$event.stopPropagation()">
+                @for (s of sortOptions; track s.value) {
+                  <button class="chip-opt" [class.active]="sort === s.value" (click)="setSort(s.value)">
+                    @if (sort === s.value) { <i class="bi bi-check2"></i> } @else { <i class="bi bi-dash" style="opacity:0"></i> }
+                    {{ s.label }}
                   </button>
                 }
               </div>
-              <hr class="divider">
-              <p class="sb-title">Sort By</p>
-              <select class="nb-input" [(ngModel)]="sort" (ngModelChange)="load()">
-                <option value="rating">Top Rated</option>
-                <option value="bookings">Most Booked</option>
-                <option value="price_asc">Price: Low → High</option>
-                <option value="price_desc">Price: High → Low</option>
-              </select>
-              <hr class="divider">
-              <button class="btn-nb-outline btn btn-sm w-100" (click)="clearAll()">
-                <i class="bi bi-arrow-counterclockwise me-1"></i>Clear Filters
-              </button>
-            </div>
+            }
           </div>
 
+          <button class="chip" [class.on]="minRating()===4.5" (click)="toggleRating(4.5)">
+            <i class="bi bi-star-fill"></i>Top Rated
+          </button>
+          <button class="chip" [class.on]="verifiedOnly()" (click)="toggleVerified()">
+            <i class="bi bi-patch-check-fill"></i>Verified
+          </button>
+          <button class="chip" [class.on]="onlineOnly()" (click)="toggleOnline()">
+            <i class="bi bi-lightning-charge-fill"></i>Quick Response
+          </button>
+          <button class="chip" [class.on]="minRating()===4" (click)="toggleRating(4)">
+            <i class="bi bi-star"></i>4★ &amp; above
+          </button>
+          <button class="chip chip-clear" (click)="clearAll()">
+            <i class="bi bi-x-circle"></i>Clear All
+          </button>
+        </div>
+      </div>
+
+      <div class="container py-3">
+        <div class="row g-3">
+
           <!-- RESULTS -->
-          <div class="col-lg-9">
+          <div class="col-lg-8">
             <div class="res-hdr">
-              <span class="res-count">{{ total() }} providers found</span>
+              <span class="res-count">{{ total() }} results</span>
               @if (cat() !== 'all') {
-                <span class="active-filter">
-                  {{ catLabel(cat()) }}
-                  <button (click)="setCat('all')"><i class="bi bi-x"></i></button>
-                </span>
+                <span class="active-filter">{{ catLabel(cat()) }} <button (click)="setCat('all')"><i class="bi bi-x"></i></button></span>
               }
             </div>
 
             @if (loading()) {
-              <div class="nb-spinner-wrap"><div class="nb-spinner"></div></div>
+              @for (s of [1,2,3,4]; track s) { <div class="mb-3"><app-skeleton-loader type="provider" /></div> }
             } @else if (providers().length === 0) {
               <div class="empty-state" data-testid="empty-state">
-                <i class="bi bi-search"></i>
-                <h5>No providers found</h5>
+                <i class="bi bi-search"></i><h5>No providers found</h5>
                 <p>Try changing your filters or search term</p>
                 <button class="btn-nb-outline btn" (click)="clearAll()">Clear Filters</button>
               </div>
             } @else {
-              <div class="prov-grid">
-                @for (p of providers(); track p._id) {
-                  <div class="pc nb-card" [routerLink]="['/provider', p._id]" data-testid="provider-card">
-                    <div class="pc-hdr" [style.background]="catColor(p.category)">
-                      <div class="pc-av">{{ p.businessName.charAt(0) }}</div>
-                      @if (p.isOnline) {
-                        <span class="online-pill" data-testid="online-badge">
-                          <i class="bi bi-camera-video-fill"></i> Online
-                        </span>
-                      }
+              @for (p of providers(); track p._id) {
+                <!-- HORIZONTAL CARD (11.11) -->
+                <div class="jcard" data-testid="provider-card">
+                  <a class="jcard-thumb" [routerLink]="['/provider', p._id]" [style.background]="catColor(p.category)">
+                    @if (p.images && p.images.length) { <img [src]="p.images[0]" [alt]="p.businessName" /> }
+                    @else { <span class="jthumb-init">{{ p.businessName.charAt(0) }}</span> }
+                  </a>
+                  <div class="jcard-body">
+                    <div class="d-flex justify-content-between align-items-start gap-2">
+                      <a class="jcard-name" [routerLink]="['/provider', p._id]" data-testid="provider-name">{{ p.businessName }}</a>
                     </div>
-                    <div class="pc-body">
-                      <div class="d-flex justify-content-between align-items-start mb-1">
-                        <h6 class="pc-name">{{ p.businessName }}</h6>
-                        @if (p.isVerified) { <i class="bi bi-patch-check-fill" style="color:var(--nb-primary)" title="Verified"></i> }
+                    <!-- rating badge green (11.12) -->
+                    <div class="jcard-meta">
+                      <span class="jrate" data-testid="rating-value">{{ p.ratingAvg }} <i class="bi bi-star-fill"></i></span>
+                      <span class="jrate-cnt">{{ p.ratingCount }} Ratings</span>
+                      <span class="jexp">· {{ p.experience }} yrs</span>
+                    </div>
+                    <!-- badges (11.13) -->
+                    <div class="jbadges">
+                      @if (p.ratingAvg >= 4.7) { <span class="jb jb-trust"><i class="bi bi-award-fill"></i>Trust</span> }
+                      @if (p.isVerified) { <span class="jb jb-verified"><i class="bi bi-patch-check-fill"></i>Verified</span> }
+                      @if (p.ratingCount >= 100) { <span class="jb jb-popular"><i class="bi bi-fire"></i>Popular</span> }
+                      @if (p.isVerified) { <span class="jb jb-claimed"><i class="bi bi-check2-circle"></i>Claimed</span> }
+                    </div>
+                    <!-- location + keyword highlights (11.14) -->
+                    <p class="jcard-loc"><i class="bi bi-geo-alt-fill"></i>
+                      {{ p.userId?.location?.area || p.userId?.location?.district || 'Chennai' }}
+                      <span class="jcat" data-testid="provider-category">· {{ catLabel(p.category) }}</span>
+                    </p>
+                    @if (p.skills && p.skills.length) {
+                      <div class="jtags">
+                        @for (s of p.skills.slice(0,3); track s) { <span class="jtag">{{ s }}</span> }
                       </div>
-                      <p class="pc-sub">
-                        <span class="nb-badge nb-badge-muted" data-testid="provider-category">{{ catLabel(p.category) }}</span>
-                        · {{ p.subCategory }}
-                      </p>
-                      <p class="pc-loc">
-                        <i class="bi bi-geo-alt"></i>
-                        {{ p.userId?.location?.area || p.userId?.location?.district || 'Location N/A' }}@if (p.userId?.location?.district) { , {{ p.userId?.location?.district }} }
-                      </p>
-                      <div class="pc-rating">
-                        <span class="star-filled">★</span>
-                        <strong data-testid="rating-value">{{ p.ratingAvg }}</strong>
-                        <span class="text-muted-nb">({{ p.ratingCount }})</span>
-                        · {{ p.experience }}yr exp
-                      </div>
-                      <p class="pc-bio">{{ p.bio | slice:0:85 }}...</p>
-                      <div class="pc-footer">
-                        <div>
-                          <span class="pf-from">From</span>
-                          <span class="pf-price">₹{{ p.price }}@if (p.priceMax && p.priceMax > p.price) { <span style="font-size:.8rem"> – ₹{{ p.priceMax }}</span> }</span>
-                        </div>
-                        <button class="btn-nb-primary btn btn-sm">Book Now</button>
-                      </div>
+                    }
+                    <!-- performance tag (11.15) -->
+                    @if (p.ratingAvg >= 4.5) { <p class="jperf"><i class="bi bi-lightning-charge-fill"></i>High call pick up rate</p> }
+
+                    <!-- action buttons (11.16) -->
+                    <div class="jactions">
+                      @if (revealedPhones()[p._id]) {
+                        <a class="jbtn jbtn-call" [href]="'tel:' + revealedPhones()[p._id]"><i class="bi bi-telephone-fill"></i>{{ revealedPhones()[p._id] }}</a>
+                      } @else {
+                        <button class="jbtn jbtn-call" (click)="requestContact(p, 'call')"><i class="bi bi-telephone-fill"></i>Call</button>
+                      }
+                      <button class="jbtn jbtn-wa" (click)="requestContact(p, 'whatsapp')"><i class="bi bi-whatsapp"></i>WhatsApp</button>
+                      <button class="jbtn jbtn-enq" (click)="enquire(p)"><i class="bi bi-chat-dots-fill"></i>Send Enquiry</button>
                     </div>
                   </div>
-                }
-              </div>
+                </div>
+              }
 
-              <!-- Pagination -->
               @if (totalPages() > 1) {
                 <div class="pagination-row">
-                  <button class="pg-btn" [disabled]="page()===1" (click)="changePage(page()-1)">
-                    <i class="bi bi-chevron-left"></i>
-                  </button>
-                  @for (n of pageNumbers(); track n) {
-                    <button class="pg-btn" [class.active]="page()===n" (click)="changePage(n)">{{ n }}</button>
-                  }
-                  <button class="pg-btn" [disabled]="page()===totalPages()" (click)="changePage(page()+1)">
-                    <i class="bi bi-chevron-right"></i>
-                  </button>
+                  <button class="pg-btn" [disabled]="page()===1" (click)="changePage(page()-1)"><i class="bi bi-chevron-left"></i></button>
+                  @for (n of pageNumbers(); track n) { <button class="pg-btn" [class.active]="page()===n" (click)="changePage(n)">{{ n }}</button> }
+                  <button class="pg-btn" [disabled]="page()===totalPages()" (click)="changePage(page()+1)"><i class="bi bi-chevron-right"></i></button>
                 </div>
               }
             }
+
+            <app-banner-ad />
+          </div>
+
+          <!-- RIGHT SIDEBAR: lead form (11.17) -->
+          <div class="col-lg-4">
+            <div class="lead-card">
+              <h6 class="lead-title">Get the best deals</h6>
+              <p class="lead-sub">Share your details and trusted providers will reach out to you.</p>
+              <input class="nb-input mb-2" placeholder="Your name" [(ngModel)]="lead.name" />
+              <div class="lead-phone mb-2">
+                <span class="lead-cc">+91</span>
+                <input class="lead-phone-input" placeholder="Mobile number" maxlength="10" inputmode="numeric" [(ngModel)]="lead.mobile" />
+              </div>
+              <input class="nb-input mb-2" placeholder="What service? (optional)" [(ngModel)]="lead.service" />
+              <button class="btn-nb-accent btn w-100" [disabled]="sendingLead()" (click)="sendLead()">
+                @if (sendingLead()) { Sending… } @else { <i class="bi bi-send me-1"></i>Send Enquiry }
+              </button>
+              <p class="lead-note"><i class="bi bi-shield-check"></i> Your number is safe with us.</p>
+            </div>
           </div>
         </div>
       </div>
     </div>
+
+    @if (showContactModal()) {
+      <app-contact-login-modal (verified)="onContactVerified()" (closed)="showContactModal.set(false)" />
+    }
   `,
   styles: [`
-    .fbar { background:#fff; border-bottom:1px solid var(--nb-border); position:sticky; top:64px; z-index:1010; padding:12px 0; box-shadow:0 2px 8px rgba(0,0,0,.04); }
-    .fbar-inner { display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
-    .fsearch { display:flex; align-items:center; background:var(--nb-bg); border:1.5px solid var(--nb-border); border-radius:var(--radius-md); padding:8px 14px; gap:8px; flex:1; min-width:200px; }
-    .fsearch i { color:var(--nb-text-muted); }
-    .fsearch-input { border:none; outline:none; background:transparent; font-family:var(--font-body); font-size:.875rem; width:100%; }
-    .fclear { background:none; border:none; color:var(--nb-text-muted); cursor:pointer; }
-    .fcats { display:flex; gap:6px; flex-wrap:wrap; }
-    .fcat { display:inline-flex; align-items:center; gap:5px; background:var(--nb-bg); border:1.5px solid var(--nb-border); border-radius:var(--radius-md); padding:6px 14px; font-family:var(--font-display); font-size:.75rem; font-weight:600; text-transform:uppercase; letter-spacing:.04em; color:var(--nb-text-muted); cursor:pointer; transition:all .2s; }
-    .fcat.active, .fcat:hover { background:var(--nb-primary); border-color:var(--nb-primary); color:#fff; }
-    .fcat i { font-size:.9rem; }
-    .ftoggle { display:flex; align-items:center; gap:8px; cursor:pointer; user-select:none; }
-    .ftoggle input { display:none; }
-    .tog-track { width:40px; height:22px; background:var(--nb-border); border-radius:11px; position:relative; transition:background .2s; }
-    .ftoggle input:checked + .tog-track { background:var(--nb-primary); }
-    .tog-thumb { width:16px; height:16px; background:#fff; border-radius:50%; position:absolute; top:3px; left:3px; transition:left .2s; box-shadow:0 1px 3px rgba(0,0,0,.2); }
-    .ftoggle input:checked + .tog-track .tog-thumb { left:21px; }
-    .tog-lbl { font-family:var(--font-display); font-size:.8rem; font-weight:600; color:var(--nb-text-muted); }
-    .sidebar-card { background:#fff; border:1px solid var(--nb-border); border-radius:var(--radius-lg); padding:1.25rem; position:sticky; top:120px; }
-    .sb-title { font-family:var(--font-display); font-size:.72rem; font-weight:700; text-transform:uppercase; letter-spacing:.06em; color:var(--nb-text-muted); margin-bottom:.75rem; }
-    .rb-group { display:flex; flex-direction:column; gap:6px; }
-    .rb-btn { background:var(--nb-bg); border:1.5px solid var(--nb-border); border-radius:var(--radius-sm); padding:6px 12px; font-size:.8rem; cursor:pointer; text-align:left; transition:all .15s; }
-    .rb-btn.active { background:var(--nb-primary); border-color:var(--nb-primary); color:#fff; }
-    .res-hdr { display:flex; align-items:center; gap:10px; margin-bottom:1rem; flex-wrap:wrap; }
-    .res-count { font-family:var(--font-display); font-weight:700; font-size:.9rem; }
-    .active-filter { display:inline-flex; align-items:center; gap:6px; background:#EFF6FF; color:var(--nb-primary); border-radius:20px; padding:3px 10px 3px 8px; font-size:.78rem; font-weight:600; }
+    .srch-wrap { background:linear-gradient(135deg,#0F2744,#1A3C5E); padding:18px 0; position:sticky; top:var(--nb-navbar-h,56px); z-index:1002; overflow:visible; }
+    .chips-wrap { background:#fff; border-bottom:1px solid var(--nb-border); position:sticky; top:calc(var(--nb-navbar-h,56px) + 86px); z-index:1001; }
+    .chips-row { display:flex; gap:8px; padding:10px 12px; overflow-x:auto; }
+    .chip { display:inline-flex; align-items:center; gap:6px; background:#fff; border:1.5px solid var(--nb-border); border-radius:20px; padding:6px 14px; font-family:var(--font-display); font-size:.78rem; font-weight:600; color:var(--nb-text-muted); cursor:pointer; white-space:nowrap; transition:all .15s; }
+    .chip:hover { border-color:var(--nb-primary); color:var(--nb-primary); }
+    .chip.on { background:var(--nb-primary); border-color:var(--nb-primary); color:#fff; }
+    .chip-sort { gap:8px; }
+    .chip-wrap { position:relative; flex-shrink:0; }
+    .chip-drop { position:absolute; top:calc(100% + 6px); left:0; min-width:200px; background:#fff; border:1px solid var(--nb-border); border-radius:var(--radius-md); box-shadow:0 8px 24px rgba(0,0,0,.14); z-index:1200; padding:6px 0; }
+    .chip-opt { display:flex; align-items:center; gap:8px; width:100%; padding:9px 16px; background:none; border:none; font-family:var(--font-display); font-size:.82rem; font-weight:600; color:var(--nb-text); cursor:pointer; text-align:left; transition:background .1s; }
+    .chip-opt:hover { background:var(--nb-surface-2); }
+    .chip-opt.active { color:var(--nb-primary); }
+    .chip-clear { color:var(--nb-danger); }
+    .res-hdr { display:flex; align-items:center; gap:10px; margin-bottom:.75rem; }
+    .res-count { font-family:var(--font-display); font-weight:700; font-size:.95rem; }
+    .active-filter { display:inline-flex; align-items:center; gap:6px; background:#EFF6FF; color:var(--nb-primary); border-radius:20px; padding:3px 10px 3px 12px; font-size:.78rem; font-weight:600; }
     .active-filter button { background:none; border:none; color:var(--nb-primary); cursor:pointer; padding:0; line-height:1; }
-    .prov-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(270px,1fr)); gap:16px; }
-    .pc { cursor:pointer; }
-    .pc-hdr { height:80px; position:relative; display:flex; align-items:flex-end; padding:12px; border-radius:var(--radius-lg) var(--radius-lg) 0 0; }
-    .pc-av { width:52px; height:52px; background:rgba(255,255,255,.25); border:3px solid rgba(255,255,255,.8); border-radius:14px; display:flex; align-items:center; justify-content:center; font-family:var(--font-display); font-weight:800; font-size:1.4rem; color:#fff; }
-    .online-pill { position:absolute; top:10px; right:10px; background:rgba(255,255,255,.9); color:var(--nb-primary); border-radius:20px; padding:3px 10px; font-size:.7rem; font-weight:600; font-family:var(--font-display); }
-    .pc-body { padding:14px 16px 16px; }
-    .pc-name { font-family:var(--font-display); font-size:.95rem; font-weight:700; margin:0; }
-    .pc-sub { font-size:.78rem; color:var(--nb-text-muted); margin:4px 0; }
-    .pc-loc { font-size:.76rem; color:var(--nb-text-muted); margin:0 0 6px; display:flex; align-items:center; gap:4px; }
-    .pc-loc i { color:var(--nb-primary); }
-    .fdistrict { display:flex; align-items:center; gap:6px; background:var(--nb-bg); border:1.5px solid var(--nb-border); border-radius:var(--radius-md); padding:6px 12px; }
-    .fdistrict i { color:var(--nb-primary); font-size:.85rem; }
-    .fdistrict select { border:none; outline:none; background:transparent; font-family:var(--font-display); font-size:.8rem; font-weight:600; color:var(--nb-text); cursor:pointer; }
-    .dnote { font-size:.75rem; color:var(--nb-text-muted); margin:10px 0 0; }
-    .pc-rating { font-size:.8rem; color:var(--nb-text-muted); margin-bottom:6px; }
-    .pc-bio { font-size:.8rem; color:var(--nb-text-muted); margin-bottom:12px; line-height:1.5; }
-    .pc-footer { display:flex; justify-content:space-between; align-items:center; }
-    .pf-from { display:block; font-size:.65rem; color:var(--nb-text-muted); text-transform:uppercase; letter-spacing:.05em; }
-    .pf-price { font-family:var(--font-display); font-size:1.1rem; font-weight:800; color:var(--nb-primary); }
-    .empty-state { text-align:center; padding:4rem 1rem; color:var(--nb-text-muted); }
-    .empty-state i { font-size:3rem; display:block; margin-bottom:1rem; }
-    .empty-state h5 { font-family:var(--font-display); color:var(--nb-text); }
-    .pagination-row { display:flex; gap:6px; justify-content:center; margin-top:2rem; }
-    .pg-btn { width:36px; height:36px; border-radius:var(--radius-sm); border:1.5px solid var(--nb-border); background:#fff; cursor:pointer; font-family:var(--font-display); font-size:.85rem; font-weight:600; transition:all .15s; }
+    /* horizontal card */
+    .jcard { display:flex; gap:14px; background:#fff; border:1px solid var(--nb-border); border-radius:var(--radius-lg); padding:14px; margin-bottom:12px; transition:box-shadow .2s, transform .2s; }
+    .jcard:hover { box-shadow:var(--shadow-lg); transform:translateY(-2px); }
+    .jcard-thumb { width:120px; min-width:120px; height:120px; border-radius:var(--radius-md); overflow:hidden; display:flex; align-items:center; justify-content:center; text-decoration:none; }
+    .jcard-thumb img { width:100%; height:100%; object-fit:cover; }
+    .jthumb-init { font-family:var(--font-display); font-weight:800; font-size:2.4rem; color:rgba(255,255,255,.85); }
+    .jcard-body { flex:1; min-width:0; }
+    .jcard-name { font-family:var(--font-display); font-size:1.05rem; font-weight:700; color:var(--nb-text); text-decoration:none; }
+    .jcard-name:hover { color:var(--nb-primary); }
+    .jcard-meta { display:flex; align-items:center; gap:8px; margin:4px 0; flex-wrap:wrap; }
+    .jrate { background:#1a7a4a; color:#fff; border-radius:5px; padding:2px 7px; font-size:.8rem; font-weight:700; display:inline-flex; align-items:center; gap:3px; }
+    .jrate-cnt, .jexp { font-size:.78rem; color:var(--nb-text-muted); }
+    .jbadges { display:flex; flex-wrap:wrap; gap:5px; margin:6px 0; }
+    .jb { display:inline-flex; align-items:center; gap:3px; font-size:.66rem; font-weight:700; padding:2px 8px; border-radius:12px; text-transform:uppercase; letter-spacing:.03em; }
+    .jb-trust { background:#FEF3C7; color:#92400e; }
+    .jb-verified { background:#DBEAFE; color:#1e40af; }
+    .jb-popular { background:#FFEDD5; color:#9a3412; }
+    .jb-claimed { background:#1f2937; color:#fff; }
+    .jcard-loc { font-size:.8rem; color:var(--nb-text-muted); margin:4px 0; display:flex; align-items:center; gap:5px; }
+    .jcard-loc i { color:var(--nb-danger); }
+    .jcat { color:var(--nb-text-muted); }
+    .jtags { display:flex; flex-wrap:wrap; gap:5px; margin:4px 0; }
+    .jtag { background:var(--nb-surface-2); color:var(--nb-text-muted); border-radius:6px; padding:2px 9px; font-size:.72rem; font-weight:500; }
+    .jperf { font-size:.75rem; color:#1a7a4a; font-weight:600; margin:4px 0; display:flex; align-items:center; gap:4px; }
+    .jactions { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
+    .jbtn { display:inline-flex; align-items:center; gap:6px; border:none; border-radius:8px; padding:8px 16px; font-family:var(--font-display); font-weight:700; font-size:.82rem; cursor:pointer; text-decoration:none; transition:opacity .15s; }
+    .jbtn:hover { opacity:.88; }
+    .jbtn-call { background:#1a7a4a; color:#fff; }
+    .jbtn-wa { background:#fff; color:#1a7a4a; border:1.5px solid #1a7a4a; }
+    .jbtn-enq { background:#1565C0; color:#fff; }
+    .pagination-row { display:flex; gap:6px; justify-content:center; margin:1.5rem 0; }
+    .pg-btn { width:36px; height:36px; border-radius:var(--radius-sm); border:1.5px solid var(--nb-border); background:#fff; cursor:pointer; font-family:var(--font-display); font-weight:600; }
     .pg-btn.active { background:var(--nb-primary); border-color:var(--nb-primary); color:#fff; }
     .pg-btn:disabled { opacity:.4; cursor:not-allowed; }
+    .empty-state { text-align:center; padding:3rem 1rem; color:var(--nb-text-muted); background:#fff; border-radius:var(--radius-lg); border:1px solid var(--nb-border); }
+    .empty-state i { font-size:2.5rem; display:block; margin-bottom:.75rem; }
+    .lead-card { background:#fff; border:1px solid var(--nb-border); border-radius:var(--radius-lg); padding:1.25rem; position:sticky; top:calc(var(--nb-navbar-h,56px) + 156px); }
+    .lead-title { font-family:var(--font-display); font-weight:800; margin:0 0 4px; }
+    .lead-sub { font-size:.8rem; color:var(--nb-text-muted); margin-bottom:1rem; }
+    .lead-phone { display:flex; align-items:stretch; border:1.5px solid var(--nb-border); border-radius:var(--radius-md); overflow:hidden; background:#fff; }
+    .lead-phone:focus-within { border-color:var(--nb-accent); box-shadow:0 0 0 3px color-mix(in srgb, var(--nb-accent) 15%, transparent); }
+    .lead-cc { display:flex; align-items:center; padding:0 10px; background:#f5f5f5; border-right:1.5px solid var(--nb-border); font-size:.88rem; font-weight:600; color:#555; white-space:nowrap; }
+    .lead-phone-input { flex:1; border:none; outline:none; padding:10px 12px; font-size:.9rem; background:transparent; min-width:0; }
+    .lead-note { font-size:.72rem; color:var(--nb-text-muted); margin:10px 0 0; display:flex; align-items:center; gap:5px; }
+    .lead-note i { color:var(--nb-success); }
+    @media (max-width:575px){ .jcard{ flex-direction:column; } .jcard-thumb{ width:100%; height:160px; } }
   `]
 })
 export class BrowseComponent implements OnInit {
@@ -233,70 +252,96 @@ export class BrowseComponent implements OnInit {
   page       = signal(1);
   cat        = signal('all');
   minRating  = signal(0);
-  onlineOnly = false;
+  verifiedOnly = signal(false);
+  onlineOnly = signal(false);   // was plain boolean — now signal for consistent reactivity
+  sortOpen   = signal(false);
   sort       = 'rating';
   q          = '';
-  mobileCat  = 'all';
   district   = signal('');
   districts  = DISTRICTS;
   private searchTimer: any;
+
+  sortOptions = [
+    { value: 'rating',     label: 'Top Rated' },
+    { value: 'popular',    label: 'Most Popular' },
+    { value: 'price_asc',  label: 'Price: Low → High' },
+    { value: 'price_desc', label: 'Price: High → Low' },
+  ];
+  sortLabel = computed(() => {
+    return 'Sort: ' + (this.sortOptions.find(s => s.value === this.sort)?.label ?? 'Top Rated');
+  });
+
+  // contact reveal
+  revealedPhones = signal<Record<string, string>>({});
+  showContactModal = signal(false);
+  private pending: { provider: Provider; channel: 'call' | 'whatsapp' } | null = null;
+  private pendingEnquiry: Provider | null = null;
+
+  // lead form
+  lead = { name: '', mobile: '', service: '' };
+  sendingLead = signal(false);
 
   totalPages  = computed(() => Math.ceil(this.total() / 12));
   pageNumbers = computed(() => Array.from({ length: this.totalPages() }, (_, i) => i + 1).slice(0, 7));
 
   cats = [
-    { id:'all',           label:'All',           icon:'bi-grid-3x3-gap' },
-    { id:'home_services', label:'Home Services',  icon:'bi-tools' },
-    { id:'education',     label:'Education',      icon:'bi-mortarboard' },
-    { id:'food',          label:'Food',           icon:'bi-basket2' },
-    { id:'wellness',      label:'Wellness',       icon:'bi-heart-pulse' },
-    { id:'events',        label:'Events',         icon:'bi-camera' },
+    { id:'all',             label:'All' },
+    { id:'home_services',   label:'Home Services' },
+    { id:'education',       label:'Education' },
+    { id:'food',            label:'Food & Catering' },
+    { id:'bakery',          label:'Bakery' },
+    { id:'beauty_salon',    label:'Beauty & Salon' },
+    { id:'fitness',         label:'Fitness' },
+    { id:'wellness',        label:'Spa & Wellness' },
+    { id:'health_medical',  label:'Health & Medical' },
+    { id:'events',          label:'Events' },
+    { id:'photography',     label:'Photography' },
+    { id:'repair_services', label:'Repair Services' },
+    { id:'automotive',      label:'Automotive' },
+    { id:'clothing_fashion',label:'Clothing & Fashion' },
+    { id:'pet_care',        label:'Pet Care' },
+    { id:'cleaning',        label:'Cleaning' },
+    { id:'transport',       label:'Transport' },
+    { id:'interior_design', label:'Interior Design' },
+    { id:'legal_finance',   label:'Legal & Finance' },
+    { id:'it_tech',         label:'IT & Tech' },
+    { id:'childcare',       label:'Childcare' },
+    { id:'wedding',         label:'Wedding Services' },
+    { id:'music_arts',      label:'Music & Arts' },
+    { id:'sports',          label:'Sports & Coaching' },
+    { id:'printing',        label:'Printing' },
+    { id:'security',        label:'Security' },
+    { id:'agriculture',     label:'Agriculture' },
   ];
 
-  constructor(private api: ApiService, private route: ActivatedRoute, private auth: AuthService) {}
+  constructor(
+    private api: ApiService, private route: ActivatedRoute, private router: Router,
+    private auth: AuthService, private toast: ToastService, private chat: ChatService,
+  ) {}
 
   ngOnInit() {
     this.route.queryParams.subscribe(p => {
-      if (p['category']) { this.cat.set(p['category']); this.mobileCat = p['category']; }
-      if (p['q'])         this.q = p['q'];
-      this.initDistrictThenLoad(p['district']);
+      if (p['category']) this.cat.set(p['category']);
+      if (p['q'])        { this.q = p['q']; this.lead.service = p['q']; }
+      this.district.set(p['district'] ?? this.auth.currentUser()?.location?.district ?? '');
+      this.load();
     });
   }
 
-  // Default the district filter to the logged-in user's district.
-  // The cached user may lack location, so fall back to fetching the profile.
-  private initDistrictThenLoad(qpDistrict?: string) {
-    if (qpDistrict) { this.district.set(qpDistrict); this.load(); return; }
-    const cached = this.auth.currentUser()?.location?.district;
-    if (cached) { this.district.set(cached); this.load(); return; }
-    if (this.auth.isLoggedIn()) {
-      this.auth.loadProfile().subscribe({
-        next: res => { this.district.set(res.data?.location?.district ?? ''); this.load(); },
-        error: () => this.load(),
-      });
-    } else {
-      this.load();
-    }
-  }
-
-  onDistrictChange() { this.page.set(1); this.load(); }
-
   load() {
     this.loading.set(true);
-    const params: Record<string, any> = {
-      page:   this.page(),
-      limit:  12,
-      sort:   this.sort,
-    };
-    if (this.cat() !== 'all') params['category']  = this.cat();
-    if (this.minRating() > 0) params['rating']    = this.minRating();
-    if (this.onlineOnly)      params['isOnline']  = true;
-    if (this.q.trim())        params['search']    = this.q.trim();
-    if (this.district())      params['district']  = this.district();
+    const params: Record<string, any> = { page: this.page(), limit: 12, sort: this.sort };
+    if (this.cat() !== 'all')     params['category'] = this.cat();
+    if (this.minRating() > 0)     params['rating']   = this.minRating();
+    if (this.onlineOnly())        params['isOnline']  = true;
+    if (this.verifiedOnly())      params['verified']  = true;
+    if (this.q.trim())            params['search']    = this.q.trim();
+    if (this.district())          params['district']  = this.district();
 
     this.api.get<PaginatedResponse<Provider>>('/providers', params).subscribe({
       next: res => {
-        this.providers.set(res.data);
+        const data = res.data;
+        this.providers.set(data);
         this.total.set(res.pagination.total);
         this.loading.set(false);
       },
@@ -304,25 +349,97 @@ export class BrowseComponent implements OnInit {
     });
   }
 
-  onSearch() {
-    clearTimeout(this.searchTimer);
-    this.searchTimer = setTimeout(() => { this.page.set(1); this.load(); }, 400);
+  onSearch2(e: { location: string; q: string }) {
+    this.q = e.q;
+    if (e.location) this.district.set(e.location);
+    this.page.set(1);
+    this.load();
   }
 
-  setCat(id: string)    { this.cat.set(id); this.mobileCat = id; this.page.set(1); this.load(); }
-  setRating(r: number)  { this.minRating.set(r); this.page.set(1); this.load(); }
-  changePage(n: number) { this.page.set(n); this.load(); window.scrollTo(0, 0); }
+  toggleRating(r: number) { this.minRating.set(this.minRating() === r ? 0 : r); this.page.set(1); this.load(); }
+  toggleVerified()        { this.verifiedOnly.set(!this.verifiedOnly()); this.page.set(1); this.load(); }
+  toggleOnline()          { this.onlineOnly.set(!this.onlineOnly()); this.page.set(1); this.load(); }
+  setSort(v: string)      { this.sort = v; this.sortOpen.set(false); this.page.set(1); this.load(); }
+  setCat(id: string)      { this.cat.set(id); this.page.set(1); this.load(); }
+  changePage(n: number)   { this.page.set(n); this.load(); window.scrollTo(0, 0); }
 
   clearAll() {
-    this.q = ''; this.cat.set('all'); this.mobileCat = 'all';
-    this.minRating.set(0); this.onlineOnly = false; this.sort = 'rating';
-    this.district.set(this.auth.currentUser()?.location?.district ?? '');
+    this.q = ''; this.cat.set('all'); this.minRating.set(0);
+    this.onlineOnly.set(false); this.verifiedOnly.set(false);
+    this.sort = 'rating'; this.sortOpen.set(false);
     this.page.set(1); this.load();
   }
 
   catLabel(id: string) { return this.cats.find(c => c.id === id)?.label ?? id; }
   catColor(id: string) {
-    const m: Record<string,string> = { home_services:'#2563A8', education:'#059669', food:'#D97706', wellness:'#7C3AED', events:'#DC2626' };
+    const m: Record<string,string> = {
+      home_services:'#2563A8', education:'#059669', food:'#D97706',
+      bakery:'#B45309', beauty_salon:'#DB2777', fitness:'#0891B2',
+      wellness:'#7C3AED', health_medical:'#0F766E', events:'#DC2626',
+      photography:'#7C3AED', repair_services:'#6B7280', automotive:'#1D4ED8',
+      clothing_fashion:'#BE185D', pet_care:'#92400E', cleaning:'#0369A1',
+      transport:'#374151', interior_design:'#B45309', legal_finance:'#1E40AF',
+      it_tech:'#1D4ED8', childcare:'#D97706', wedding:'#9333EA',
+      music_arts:'#0F766E', sports:'#16A34A', printing:'#6B7280',
+      security:'#374151', agriculture:'#15803D',
+    };
     return m[id] ?? '#1A3C5E';
+  }
+
+  // ── Per-card contact reveal (gated by OTP) ───────────────────
+  requestContact(p: Provider, channel: 'call' | 'whatsapp') {
+    this.pending = { provider: p, channel };
+    if (!this.auth.isLoggedIn()) { this.showContactModal.set(true); return; }
+    this.revealAndAct();
+  }
+  onContactVerified() {
+    this.showContactModal.set(false);
+    if (this.pendingEnquiry) { const p = this.pendingEnquiry; this.pendingEnquiry = null; this.openChat(p); }
+    else { this.revealAndAct(); }
+  }
+
+  private revealAndAct() {
+    if (!this.pending) return;
+    const { provider, channel } = this.pending;
+    this.api.post<ApiResponse<{ phone: string }>>(`/providers/${provider._id}/contact`, { channel }).subscribe({
+      next: res => {
+        const phone = res.data?.phone ?? provider.userId?.phone ?? '';
+        this.revealedPhones.update(m => ({ ...m, [provider._id]: phone }));
+        if (channel === 'whatsapp' && phone) {
+          const e164 = phone.replace(/\D/g, '').slice(-10);
+          window.open(`https://wa.me/91${e164}`, '_blank', 'noopener');
+        } else {
+          this.toast.success(`Number revealed — tap ${phone} to call`);
+        }
+        this.pending = null;
+      },
+      error: () => this.toast.error('Could not reveal contact. Try again.'),
+    });
+  }
+
+  enquire(p: Provider) {
+    if (!this.auth.isLoggedIn()) { this.pendingEnquiry = p; this.showContactModal.set(true); return; }
+    this.openChat(p);
+  }
+  private openChat(p: Provider) {
+    this.chat.open({ providerId: p._id }).subscribe({
+      next: c => this.router.navigate(['/chat', c._id]),
+      error: () => this.toast.error('Could not open chat.'),
+    });
+  }
+
+  // ── Lead form (11.17) ────────────────────────────────────────
+  sendLead() {
+    if (!this.lead.name.trim() || !/^\d{10}$/.test(this.lead.mobile.trim())) {
+      this.toast.error('Enter your name and a valid 10-digit mobile.'); return;
+    }
+    this.sendingLead.set(true);
+    this.api.post<ApiResponse<any>>('/leads', {
+      name: this.lead.name.trim(), mobile: this.lead.mobile.trim(),
+      service: this.lead.service.trim() || this.q, location: this.district(),
+    }).subscribe({
+      next: () => { this.sendingLead.set(false); this.toast.success('Enquiry sent! Providers will reach out soon.'); this.lead = { name:'', mobile:'', service:'' }; },
+      error: () => { this.sendingLead.set(false); this.toast.error('Could not send enquiry.'); },
+    });
   }
 }

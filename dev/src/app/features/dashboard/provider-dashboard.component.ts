@@ -1,185 +1,225 @@
 // src/app/features/dashboard/provider-dashboard.component.ts
-import { Component, OnInit, signal } from '@angular/core';
+import { Component, OnInit, signal, computed } from '@angular/core';
 import { CommonModule }  from '@angular/common';
+import { FormsModule }   from '@angular/forms';
 import { RouterLink, Router } from '@angular/router';
 import { AuthService }   from '../../core/auth/auth.service';
-import { ApiService, Booking } from '../../core/services/api.service';
+import { ApiService, ApiResponse } from '../../core/services/api.service';
 import { ChatService }   from '../../core/services/chat.service';
 import { ToastService }  from '../../core/services/toast.service';
+import { AdMobService }  from '../../core/services/admob.service';
+
+interface Stats {
+  views:    { today: number; week: number; all: number };
+  contacts: { week: number; all: number };
+  rating:   { avg: number; count: number };
+  completion: number;
+}
+interface Teaser { count: number; unlocked: boolean; adsWatched: number; adsRequired: number; }
+interface MyReview { _id: string; rating: number; review: string; providerReply: string; createdAt: string; customerId: any; }
+interface Visitor { name: string; phone: string; visitedAt: string; }
 
 @Component({
   selector: 'app-provider-dashboard',
   standalone: true,
-  imports: [CommonModule, RouterLink],
+  imports: [CommonModule, FormsModule, RouterLink],
   template: `
     <div class="container py-4">
 
       <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
         <div>
           <h2 class="section-title">Provider Dashboard</h2>
-          <p class="section-sub mb-0">{{ auth.currentUser()?.name }}</p>
+          <p class="section-sub mb-0">Welcome back, {{ auth.currentUser()?.name }}</p>
         </div>
         <div class="d-flex gap-2">
           <a routerLink="/provider/services" class="btn-nb-primary btn btn-sm">
-            <i class="bi bi-pencil-square me-1"></i>Edit Service Details
-          </a>
-          <a routerLink="/browse" class="btn-nb-outline btn btn-sm">
-            <i class="bi bi-eye me-1"></i>View My Profile
+            <i class="bi bi-pencil-square me-1"></i>Edit Profile
           </a>
         </div>
       </div>
 
-      <!-- KPIs -->
-      <div class="kpi-grid mb-4">
-        @for (k of kpis(); track k.label) {
-          <div class="kpi-card">
-            <div class="kpi-icon" [style.background]="k.bg"><i class="bi" [class]="k.icon" [style.color]="k.ic"></i></div>
-            <div><p class="kpi-num">{{ k.val }}</p><p class="kpi-lbl">{{ k.label }}</p></div>
-          </div>
-        }
+      <!-- ── STAT CARDS (4.6) ─────────────────────────────────── -->
+      <div class="stat-grid mb-4">
+        <div class="stat-card sc-blue">
+          <div class="sc-top"><span class="sc-icon"><i class="bi bi-eye-fill"></i></span>
+            <span class="sc-trend">Today {{ stats()?.views?.today ?? 0 }}</span></div>
+          <p class="sc-num">{{ animViews() }}</p>
+          <p class="sc-lbl">Profile Views</p>
+          <p class="sc-foot">{{ stats()?.views?.week ?? 0 }} this week</p>
+        </div>
+        <div class="stat-card sc-green">
+          <div class="sc-top"><span class="sc-icon"><i class="bi bi-telephone-fill"></i></span>
+            <span class="sc-trend">+{{ stats()?.contacts?.week ?? 0 }}/wk</span></div>
+          <p class="sc-num">{{ animContacts() }}</p>
+          <p class="sc-lbl">Total Contacts</p>
+          <p class="sc-foot">calls + WhatsApp</p>
+        </div>
+        <div class="stat-card sc-amber">
+          <div class="sc-top"><span class="sc-icon"><i class="bi bi-star-fill"></i></span></div>
+          <p class="sc-num">{{ stats()?.rating?.avg ?? 0 }}<span class="sc-star">★</span></p>
+          <p class="sc-lbl">Rating</p>
+          <p class="sc-foot">{{ stats()?.rating?.count ?? 0 }} reviews</p>
+        </div>
+        <div class="stat-card sc-purple">
+          <div class="sc-top"><span class="sc-icon"><i class="bi bi-clipboard-check-fill"></i></span></div>
+          <p class="sc-num">{{ stats()?.completion ?? 0 }}%</p>
+          <p class="sc-lbl">Profile Complete</p>
+          <div class="prog-track mt-1"><div class="prog-fill" [style.width.%]="stats()?.completion ?? 0"></div></div>
+          @if ((stats()?.completion ?? 0) < 100) {
+            <p class="sc-foot"><a routerLink="/provider/services">Complete it →</a></p>
+          }
+        </div>
       </div>
 
       <div class="row g-4">
+        <div class="col-lg-7">
 
-        <!-- Pending Requests -->
-        <div class="col-md-7" data-testid="pending-requests-section">
-          <div class="ds-card">
+          <!-- ── WHO VISITED (4.8) ──────────────────────────────── -->
+          <div class="ds-card mb-4 wv-card">
             <div class="ds-hdr">
-              <h6 class="ds-title">New Booking Requests</h6>
-              <span class="nb-badge nb-badge-warning">{{ pendingBookings().length }} pending</span>
+              <h6 class="ds-title"><i class="bi bi-incognito me-2"></i>Who Visited My Profile?</h6>
             </div>
-            @if (loadingBookings()) {
-              <div class="text-center py-3"><div class="nb-spinner" style="margin:auto"></div></div>
-            } @else if (pendingBookings().length === 0) {
-              <p class="text-muted-nb text-center py-3" style="font-size:.875rem">No pending requests.</p>
-            } @else {
-              @for (b of pendingBookings(); track b._id) {
-                <div class="bk-row" data-testid="booking-request-card">
-                  <div class="bk-av" style="background:#2563A8">
-                    {{ (b.customerId?.name || 'C').charAt(0) }}
+            @if (teaser(); as t) {
+              @if (t.unlocked) {
+                <p class="wv-teaser unlocked"><i class="bi bi-unlock-fill"></i>
+                  Unlocked — {{ visitors().length }} recent visitors</p>
+                <div class="visitor-list">
+                  @for (v of visitors(); track $index) {
+                    <div class="visitor-row">
+                      <div class="v-av">{{ v.name.charAt(0) }}</div>
+                      <div class="flex-grow-1">
+                        <p class="v-name">{{ v.name }}</p>
+                        <p class="v-meta">{{ v.phone }} · {{ v.visitedAt | date:'dd MMM, h:mm a' }}</p>
+                      </div>
+                    </div>
+                  } @empty {
+                    <p class="text-muted-nb text-center py-2" style="font-size:.85rem">No visitors yet this week.</p>
+                  }
+                </div>
+              } @else {
+                <div class="wv-locked">
+                  <p class="wv-big">{{ t.count }}</p>
+                  <p class="wv-cap">people visited your profile this week</p>
+                  <p class="wv-hint">Watch {{ t.adsRequired }} short ads to reveal who they are.</p>
+                  <div class="wv-progress">
+                    @for (i of [].constructor(t.adsRequired); track $index) {
+                      <span class="wv-dot" [class.done]="$index < t.adsWatched"></span>
+                    }
                   </div>
-                  <div class="flex-grow-1">
-                    <p class="bk-prov">{{ b.customerId?.name || 'Customer' }}</p>
-                    <p class="bk-meta">
-                      {{ b.scheduledDate | date:'dd MMM' }} · {{ b.scheduledTime }}
-                      @if (b.bookingType === 'remote') { · <i class="bi bi-camera-video ms-1"></i> Online }
-                    </p>
-                    @if (b.notes) { <p class="bk-notes">"{{ b.notes }}"</p> }
-                  </div>
-                  <div class="d-flex gap-2 align-items-center">
-                    <button class="msg-link" title="Message customer" (click)="openChat(b)">
-                      <i class="bi bi-chat-dots"></i>
-                    </button>
-                    <button class="act-btn accept" (click)="accept(b._id)">
-                      <i class="bi bi-check-lg"></i>Accept
-                    </button>
-                    <button class="act-btn reject" (click)="reject(b._id)">
-                      <i class="bi bi-x-lg"></i>Reject
-                    </button>
-                  </div>
+                  <button class="btn-nb-accent btn w-100" [disabled]="watchingAd()" (click)="watchAd()">
+                    @if (watchingAd()) { <span class="spinner-border spinner-border-sm me-2"></span>Loading ad… }
+                    @else { <i class="bi bi-play-circle me-2"></i>Watch ad ({{ t.adsWatched }}/{{ t.adsRequired }}) }
+                  </button>
                 </div>
               }
+            } @else {
+              <div class="text-center py-3"><div class="nb-spinner" style="margin:auto"></div></div>
             }
           </div>
 
-          <!-- Upcoming -->
-          <div class="ds-card mt-3">
-            <div class="ds-hdr"><h6 class="ds-title">Upcoming Jobs</h6></div>
-            @if (upcomingBookings().length === 0) {
-              <p class="text-muted-nb text-center py-2" style="font-size:.8rem">No upcoming jobs.</p>
+          <!-- ── REVIEWS + REPLY (4.7) ──────────────────────────── -->
+          <div class="ds-card">
+            <div class="ds-hdr"><h6 class="ds-title">Reviews &amp; Replies</h6>
+              <span class="nb-badge nb-badge-muted">{{ myReviews().length }}</span></div>
+            @if (myReviews().length === 0) {
+              <p class="text-muted-nb text-center py-3" style="font-size:.875rem">No reviews yet.</p>
             }
-            @for (b of upcomingBookings(); track b._id) {
-              <div class="bk-row">
-                <div class="bk-av" style="background:#059669">{{ (b.customerId?.name || 'C').charAt(0) }}</div>
-                <div class="flex-grow-1">
-                  <p class="bk-prov">{{ b.customerId?.name || 'Customer' }}</p>
-                  <p class="bk-meta">{{ b.scheduledDate | date:'dd MMM' }} · {{ b.scheduledTime }}</p>
+            @for (r of myReviews(); track r._id) {
+              <div class="rev-row">
+                <div class="d-flex justify-content-between align-items-start">
+                  <div>
+                    <p class="rev-name">{{ r.customerId?.name || 'Customer' }}</p>
+                    <p class="rev-stars">{{ starStr(r.rating) }}
+                      <span class="rev-date">{{ r.createdAt | date:'dd MMM yyyy' }}</span></p>
+                  </div>
                 </div>
-                <div class="d-flex gap-2 align-items-center">
-                  <a [routerLink]="['/chat', b._id]" class="msg-link" title="Message customer">
-                    <i class="bi bi-chat-dots"></i>
-                  </a>
-                  <button class="act-btn complete" (click)="complete(b._id)">
-                    <i class="bi bi-check2-all"></i>Done
+                @if (r.review) { <p class="rev-text">"{{ r.review }}"</p> }
+
+                @if (r.providerReply && replyingTo() !== r._id) {
+                  <div class="rev-reply"><i class="bi bi-reply-fill me-1"></i>{{ r.providerReply }}
+                    <button class="rev-editlink" (click)="startReply(r)">Edit</button></div>
+                } @else if (replyingTo() === r._id) {
+                  <div class="reply-box">
+                    <textarea class="nb-input" rows="2" [(ngModel)]="replyText"
+                              placeholder="Write a public reply…"></textarea>
+                    <div class="d-flex gap-2 mt-2">
+                      <button class="btn-nb-primary btn btn-sm" (click)="sendReply(r)">Post Reply</button>
+                      <button class="btn-nb-outline btn btn-sm" (click)="replyingTo.set(null)">Cancel</button>
+                    </div>
+                  </div>
+                } @else {
+                  <button class="rev-replybtn" (click)="startReply(r)">
+                    <i class="bi bi-reply me-1"></i>Reply
                   </button>
-                </div>
+                }
               </div>
             }
           </div>
         </div>
 
-        <!-- Right column -->
-        <div class="col-md-5">
-
-          <!-- Rating -->
-          <div class="ds-card mb-3" data-testid="rating-overview">
-            <div class="ds-hdr"><h6 class="ds-title">Rating Overview</h6></div>
-            <div class="d-flex align-items-center gap-3 mb-3">
-              <div style="font-family:var(--font-display);font-size:2.5rem;font-weight:800;color:var(--nb-primary);line-height:1">
-                {{ avgRating() }}
-              </div>
-              <div>
-                <div style="color:var(--nb-accent);font-size:1.1rem;letter-spacing:2px" data-testid="rating-average">
-                  {{ starStr(avgRating()) }}
-                </div>
-                <p style="font-size:.75rem;color:var(--nb-text-muted);margin:0">
-                  Based on {{ totalRatings() }} reviews
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <!-- Profile completeness -->
-          <div class="ds-card mb-3" data-testid="profile-completeness">
-            <div class="ds-hdr"><h6 class="ds-title">Profile</h6></div>
-            <div class="prog-track">
-              <div class="prog-fill" [style.width]="'75%'"></div>
-            </div>
-            <p style="font-size:.78rem;color:var(--nb-text-muted);margin-top:6px">
-              75% — Add ID proof to reach 100%
-            </p>
-          </div>
-
-          <!-- Quick links -->
+        <!-- Right column: quick links -->
+        <div class="col-lg-5">
           <div class="ds-card">
             <div class="ds-hdr"><h6 class="ds-title">Quick Links</h6></div>
             <div class="ql-list">
               <a routerLink="/provider/services" class="ql-item"><i class="bi bi-pencil-square"></i>Edit Service Details</a>
-              <a routerLink="/browse" class="ql-item"><i class="bi bi-eye"></i>View My Public Profile</a>
+              <a routerLink="/chats" class="ql-item"><i class="bi bi-chat-dots-fill"></i>My Conversations</a>
               <a routerLink="/complaints/new" class="ql-item"><i class="bi bi-flag"></i>Raise a Complaint</a>
             </div>
           </div>
         </div>
-
       </div>
     </div>
   `,
   styles: [`
-    .kpi-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:12px; }
-    .kpi-card { background:#fff; border:1px solid var(--nb-border); border-radius:var(--radius-lg); padding:1.1rem; display:flex; align-items:center; gap:12px; }
-    .kpi-icon { width:40px; height:40px; border-radius:var(--radius-md); display:flex; align-items:center; justify-content:center; font-size:1.1rem; flex-shrink:0; }
-    .kpi-num  { font-family:var(--font-display); font-size:1.4rem; font-weight:800; margin:0; }
-    .kpi-lbl  { font-size:.7rem; text-transform:uppercase; letter-spacing:.05em; color:var(--nb-text-muted); margin:0; }
+    .stat-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:16px; }
+    .stat-card { border-radius:var(--radius-lg); padding:1.25rem; color:#fff; position:relative; overflow:hidden; animation:scIn .45s cubic-bezier(.4,0,.2,1) both; }
+    @keyframes scIn { from { opacity:0; transform:translateY(14px); } to { opacity:1; transform:translateY(0); } }
+    .sc-blue   { background:linear-gradient(135deg,#1e4d8c,#2563A8); }
+    .sc-green  { background:linear-gradient(135deg,#065f46,#059669); }
+    .sc-amber  { background:linear-gradient(135deg,#b45309,#D97706); }
+    .sc-purple { background:linear-gradient(135deg,#5b21b6,#7C3AED); }
+    .sc-top { display:flex; justify-content:space-between; align-items:center; margin-bottom:.5rem; }
+    .sc-icon { width:38px; height:38px; border-radius:11px; background:rgba(255,255,255,.18); display:flex; align-items:center; justify-content:center; font-size:1.1rem; }
+    .sc-trend { font-size:.72rem; font-weight:600; background:rgba(255,255,255,.18); padding:2px 8px; border-radius:10px; }
+    .sc-num { font-family:var(--font-display); font-size:2rem; font-weight:800; margin:0; line-height:1; }
+    .sc-star { font-size:1.1rem; margin-left:2px; }
+    .sc-lbl { font-size:.8rem; font-weight:600; margin:4px 0 0; opacity:.9; }
+    .sc-foot { font-size:.7rem; margin:6px 0 0; opacity:.75; }
+    .sc-foot a { color:#fff; text-decoration:underline; }
     .ds-card  { background:#fff; border:1px solid var(--nb-border); border-radius:var(--radius-lg); padding:1.25rem; }
     .ds-hdr   { display:flex; justify-content:space-between; align-items:center; margin-bottom:1rem; }
     .ds-title { font-family:var(--font-display); font-weight:700; margin:0; font-size:.95rem; }
-    .bk-row   { display:flex; align-items:flex-start; gap:12px; padding:10px 0; border-bottom:1px solid var(--nb-border); }
-    .bk-row:last-child { border-bottom:none; }
-    .bk-av    { width:36px; height:36px; min-width:36px; border-radius:10px; display:flex; align-items:center; justify-content:center; font-family:var(--font-display); font-weight:700; color:#fff; }
-    .bk-prov  { font-family:var(--font-display); font-weight:600; font-size:.875rem; margin:0; }
-    .bk-meta  { font-size:.75rem; color:var(--nb-text-muted); margin:2px 0 0; }
-    .bk-notes { font-size:.75rem; color:var(--nb-text-muted); font-style:italic; margin:4px 0 0; }
-    .act-btn  { border:none; border-radius:var(--radius-sm); padding:5px 12px; font-family:var(--font-display); font-size:.75rem; font-weight:700; cursor:pointer; display:flex; align-items:center; gap:4px; transition:all .15s; white-space:nowrap; }
-    .act-btn.accept   { background:#D1FAE5; color:#065f46; }
-    .act-btn.accept:hover { background:#A7F3D0; }
-    .act-btn.reject   { background:#FEE2E2; color:#991b1b; }
-    .act-btn.reject:hover { background:#FECACA; }
-    .act-btn.complete { background:#DBEAFE; color:#1e40af; }
-    .act-btn.complete:hover { background:#BFDBFE; }
-    .msg-link { width:30px; height:30px; min-width:30px; border:none; border-radius:8px; background:var(--nb-surface-2); color:var(--nb-primary); display:flex; align-items:center; justify-content:center; text-decoration:none; font-size:.9rem; cursor:pointer; }
-    .msg-link:hover { background:#EFF6FF; }
-    .prog-track { height:8px; background:var(--nb-surface-2); border-radius:4px; overflow:hidden; }
-    .prog-fill  { height:100%; background:linear-gradient(90deg,var(--nb-primary),var(--nb-primary-light)); border-radius:4px; }
+    .prog-track { height:6px; background:rgba(255,255,255,.25); border-radius:4px; overflow:hidden; }
+    .prog-fill  { height:100%; background:#fff; border-radius:4px; transition:width .6s ease; }
+    /* Who Visited */
+    .wv-card { background:linear-gradient(135deg,#fff,#faf8ff); }
+    .wv-locked { text-align:center; }
+    .wv-big { font-family:var(--font-display); font-size:2.6rem; font-weight:800; color:var(--nb-primary); margin:0; line-height:1; }
+    .wv-cap { font-size:.85rem; color:var(--nb-text-muted); margin:2px 0 0; }
+    .wv-hint { font-size:.8rem; color:var(--nb-text-muted); margin:.75rem 0; }
+    .wv-progress { display:flex; gap:8px; justify-content:center; margin-bottom:1rem; }
+    .wv-dot { width:36px; height:6px; border-radius:3px; background:var(--nb-border); transition:background .2s; }
+    .wv-dot.done { background:var(--nb-success); }
+    .wv-teaser.unlocked { color:var(--nb-success); font-weight:600; font-size:.875rem; display:flex; align-items:center; gap:6px; margin-bottom:.75rem; }
+    .visitor-list { display:flex; flex-direction:column; gap:8px; max-height:300px; overflow-y:auto; }
+    .visitor-row { display:flex; align-items:center; gap:10px; padding:8px 0; border-bottom:1px solid var(--nb-border); }
+    .visitor-row:last-child { border-bottom:none; }
+    .v-av { width:34px; height:34px; border-radius:50%; background:var(--nb-primary); color:#fff; display:flex; align-items:center; justify-content:center; font-weight:700; font-family:var(--font-display); }
+    .v-name { font-weight:600; font-size:.875rem; margin:0; }
+    .v-meta { font-size:.72rem; color:var(--nb-text-muted); margin:0; }
+    /* Reviews */
+    .rev-row { padding:12px 0; border-bottom:1px solid var(--nb-border); }
+    .rev-row:last-child { border-bottom:none; }
+    .rev-name { font-weight:700; font-size:.875rem; margin:0; font-family:var(--font-display); }
+    .rev-stars { color:var(--nb-accent); font-size:.85rem; margin:2px 0; }
+    .rev-date { color:var(--nb-text-muted); font-size:.72rem; margin-left:6px; }
+    .rev-text { font-size:.85rem; color:var(--nb-text-muted); font-style:italic; margin:4px 0; }
+    .rev-reply { background:var(--nb-surface-2); border-radius:var(--radius-sm); padding:8px 12px; font-size:.82rem; margin-top:6px; }
+    .rev-editlink, .rev-replybtn { background:none; border:none; color:var(--nb-primary); font-weight:600; font-size:.78rem; cursor:pointer; padding:0; }
+    .rev-editlink { margin-left:8px; }
+    .rev-replybtn { margin-top:6px; }
+    .reply-box { margin-top:8px; }
     .ql-list { display:flex; flex-direction:column; gap:6px; }
     .ql-item { display:flex; align-items:center; gap:10px; padding:10px 12px; background:var(--nb-surface-2); border-radius:var(--radius-md); color:var(--nb-text); text-decoration:none; font-size:.875rem; transition:background .15s; }
     .ql-item i { color:var(--nb-primary); }
@@ -187,13 +227,18 @@ import { ToastService }  from '../../core/services/toast.service';
   `]
 })
 export class ProviderDashboardComponent implements OnInit {
-  allBookings      = signal<Booking[]>([]);
-  pendingBookings  = signal<Booking[]>([]);
-  upcomingBookings = signal<Booking[]>([]);
-  loadingBookings  = signal(true);
-  kpis             = signal<any[]>([]);
-  avgRating        = signal(0);
-  totalRatings     = signal(0);
+  stats   = signal<Stats | null>(null);
+  teaser  = signal<Teaser | null>(null);
+  visitors = signal<Visitor[]>([]);
+  myReviews = signal<MyReview[]>([]);
+  watchingAd = signal(false);
+  replyingTo = signal<string | null>(null);
+  replyText = '';
+  private myProviderId = '';
+
+  // count-up animated numbers
+  animViews    = signal(0);
+  animContacts = signal(0);
 
   constructor(
     public auth: AuthService,
@@ -201,69 +246,106 @@ export class ProviderDashboardComponent implements OnInit {
     private chat: ChatService,
     private toast: ToastService,
     private router: Router,
+    private admob: AdMobService,
   ) {}
 
-  ngOnInit() { this.loadBookings(); }
-
-  // Open the unique conversation with this booking's customer
-  openChat(b: any) {
-    const customerId = b.customerId?._id ?? b.customerId;
-    if (!customerId) return;
-    this.chat.open({ customerId }).subscribe({
-      next: c => this.router.navigate(['/chat', c._id]),
-      error: () => this.toast.error('Could not open chat.'),
-    });
+  ngOnInit() {
+    this.loadStats();
+    this.loadTeaser();
+    this.loadProfileAndReviews();
   }
 
-  loadBookings() {
-    this.loadingBookings.set(true);
-    this.api.get<any>('/bookings').subscribe({
+  loadStats() {
+    this.api.get<ApiResponse<Stats>>('/providers/my/stats').subscribe({
       next: res => {
-        const all: Booking[] = res.data ?? [];
-        this.allBookings.set(all);
-        this.pendingBookings.set(all.filter(b => b.status === 'pending'));
-        this.upcomingBookings.set(all.filter(b => b.status === 'accepted'));
-        this.kpis.set([
-          { label:'Total Jobs',  val: all.filter(b=>b.status==='completed').length, icon:'bi-calendar-check', bg:'#EFF6FF', ic:'#2563A8' },
-          { label:'This Month',  val: all.filter(b => { const d = new Date(b.scheduledDate); const n = new Date(); return d.getMonth()===n.getMonth() && d.getFullYear()===n.getFullYear(); }).length, icon:'bi-graph-up', bg:'#D1FAE5', ic:'#059669' },
-          { label:'Pending',     val: all.filter(b=>b.status==='pending').length,   icon:'bi-clock',         bg:'#FEF3C7', ic:'#D97706' },
-          { label:'Upcoming',    val: all.filter(b=>b.status==='accepted').length,  icon:'bi-calendar2',     bg:'#EDE9FE', ic:'#7C3AED' },
-        ]);
-        this.loadingBookings.set(false);
-      },
-      error: () => { this.loadingBookings.set(false); },
-    });
-
-    // Load provider profile for rating
-    this.api.get<any>('/providers/my').subscribe({
-      next: res => {
-        this.avgRating.set(res.data?.ratingAvg ?? 0);
-        this.totalRatings.set(res.data?.ratingCount ?? 0);
+        this.stats.set(res.data);
+        this.countUp(this.animViews, res.data.views.all);
+        this.countUp(this.animContacts, res.data.contacts.all);
       },
     });
   }
 
-  accept(id: string) {
-    this.api.put<any>(`/bookings/${id}/accept`, {}).subscribe({
-      next: () => { this.toast.success('Booking accepted.'); this.loadBookings(); },
-      error: () => this.toast.error('Could not accept booking.'),
+  loadTeaser() {
+    this.api.get<ApiResponse<Teaser>>('/providers/my/visitors/teaser').subscribe({
+      next: res => {
+        this.teaser.set(res.data);
+        if (res.data.unlocked) this.loadVisitors();
+      },
     });
   }
 
-  reject(id: string) {
-    const reason = prompt('Reason for rejection (optional):') ?? '';
-    this.api.put<any>(`/bookings/${id}/reject`, { reason }).subscribe({
-      next: () => { this.toast.success('Booking rejected.'); this.loadBookings(); },
-      error: () => this.toast.error('Could not reject booking.'),
+  loadVisitors() {
+    this.api.get<ApiResponse<Visitor[]>>('/providers/my/visitors').subscribe({
+      next: res => this.visitors.set(res.data ?? []),
     });
   }
 
-  complete(id: string) {
-    if (!confirm('Mark this booking as completed?')) return;
-    this.api.put<any>(`/bookings/${id}/complete`, {}).subscribe({
-      next: () => { this.toast.success('Booking marked as completed!'); this.loadBookings(); },
-      error: () => this.toast.error('Could not complete booking.'),
+  loadProfileAndReviews() {
+    this.api.get<ApiResponse<any>>('/providers/my').subscribe({
+      next: res => {
+        this.myProviderId = res.data?._id ?? '';
+        if (this.myProviderId) {
+          this.api.get<ApiResponse<MyReview[]>>(`/reviews/provider/${this.myProviderId}`).subscribe({
+            next: r => this.myReviews.set(r.data ?? []),
+          });
+        }
+      },
     });
+  }
+
+  // Shows a real AdMob rewarded ad on native; on web (no ad layer) it
+  // falls back to a short simulated watch so the flow is testable. Either
+  // way, the server verifies + unlocks the batch on completion (6.3, 6.5).
+  async watchAd() {
+    this.watchingAd.set(true);
+
+    const earned = await this.admob.showRewarded();   // true only on native completion
+    if (!earned) {
+      const hasNativeAds = await this.admob.isAdLayerAvailable();
+      if (hasNativeAds) {
+        // Native ad layer exists but the user didn't finish the ad — no reward.
+        this.watchingAd.set(false);
+        this.toast.error('Finish the ad to earn the reward.');
+        return;
+      }
+      // Web fallback: simulate the watch so the feature works without a device.
+      await new Promise(r => setTimeout(r, 1200));
+    }
+
+    this.api.post<ApiResponse<any>>('/ads/verify-reward', {}).subscribe({
+      next: res => {
+        this.watchingAd.set(false);
+        if (res.data.unlocked) { this.toast.success('Visitor list unlocked!'); }
+        else { this.toast.success(`Ad complete (${res.data.adsWatched}/${res.data.adsRequired})`); }
+        this.loadTeaser();
+      },
+      error: () => { this.watchingAd.set(false); this.toast.error('Could not record ad. Try again.'); },
+    });
+  }
+
+  startReply(r: MyReview) { this.replyingTo.set(r._id); this.replyText = r.providerReply || ''; }
+
+  sendReply(r: MyReview) {
+    const reply = this.replyText.trim();
+    if (!reply) return;
+    this.api.post<ApiResponse<any>>(`/reviews/${r._id}/reply`, { reply }).subscribe({
+      next: () => {
+        this.myReviews.update(list => list.map(x => x._id === r._id ? { ...x, providerReply: reply } : x));
+        this.replyingTo.set(null);
+        this.toast.success('Reply posted.');
+      },
+      error: () => this.toast.error('Could not post reply.'),
+    });
+  }
+
+  private countUp(sig: ReturnType<typeof signal<number>>, target: number) {
+    if (target <= 0) { sig.set(0); return; }
+    const steps = 20; const inc = target / steps; let cur = 0; let n = 0;
+    const id = setInterval(() => {
+      n++; cur += inc;
+      sig.set(n >= steps ? target : Math.round(cur));
+      if (n >= steps) clearInterval(id);
+    }, 25);
   }
 
   starStr(r: number) { return '★'.repeat(Math.round(r)) + '☆'.repeat(5 - Math.round(r)); }

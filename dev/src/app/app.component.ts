@@ -5,6 +5,8 @@ import { AuthService }   from './core/auth/auth.service';
 import { ToastService }  from './core/services/toast.service';
 import { NotificationService } from './core/services/notification.service';
 import { ChatService }   from './core/services/chat.service';
+import { GeolocationService } from './core/services/geolocation.service';
+import { SettingsService } from './core/services/settings.service';
 
 @Component({
   selector: 'app-root',
@@ -14,7 +16,9 @@ import { ChatService }   from './core/services/chat.service';
     <!-- NAVBAR -->
     <nav class="navbar navbar-expand-lg nb-navbar sticky-top">
       <div class="container">
-        <a class="navbar-brand" routerLink="/">Near<span>By</span></a>
+        <a class="navbar-brand nb-brand" routerLink="/">
+          <img src="assets/brand/logo.svg" alt="NearBy Pro" class="nb-logo" height="38" />
+        </a>
 
         <button class="navbar-toggler border-0" type="button"
                 (click)="navOpen.set(!navOpen())">
@@ -50,8 +54,10 @@ import { ChatService }   from './core/services/chat.service';
 
           <div class="d-flex align-items-center gap-2">
             @if (!isLoggedIn()) {
-              <a routerLink="/auth/login"    class="btn-nb-outline btn btn-sm">Login</a>
-              <a routerLink="/auth/register" class="btn-nb-primary btn btn-sm">Join Free</a>
+              <a routerLink="/provider-signup" class="btn-nb-outline btn btn-sm d-none d-sm-inline-flex">
+                <i class="bi bi-briefcase me-1"></i>Become a Provider
+              </a>
+              <a routerLink="/auth/login" class="btn-nb-primary btn btn-sm">Login</a>
             } @else {
               <!-- CHAT -->
               @if (!isAdmin()) {
@@ -150,9 +156,8 @@ import { ChatService }   from './core/services/chat.service';
       <div class="container">
         <div class="row g-4 mb-3">
           <div class="col-md-4">
-            <div class="fw-display" style="font-size:1.5rem;font-weight:800;margin-bottom:.5rem">
-              Near<span style="color:var(--nb-accent)">By</span>
-            </div>
+              <img src="assets/brand/logo.svg" alt="NearBy Pro" height="42"
+                 style="filter:brightness(0) invert(1); margin-bottom:.5rem; display:block" />
             <p style="color:rgba(255,255,255,.6);font-size:.875rem">
               Connecting your city, one service at a time.
             </p>
@@ -161,7 +166,7 @@ import { ChatService }   from './core/services/chat.service';
             <p class="footer-heading">Platform</p>
             <div class="footer-links">
               <a routerLink="/browse">Browse</a>
-              <a routerLink="/auth/register">Join Free</a>
+              <a routerLink="/auth/login" [queryParams]="{mode:'signup'}">Sign Up</a>
             </div>
           </div>
           <div class="col-md-3">
@@ -219,6 +224,8 @@ import { ChatService }   from './core/services/chat.service';
     .notif-title { font-family:var(--font-display);font-weight:700;font-size:.82rem;margin:0; }
     .notif-body  { font-size:.78rem;color:var(--nb-text-muted);margin:2px 0 0;line-height:1.35; }
     .notif-time  { font-size:.7rem;color:var(--nb-text-muted);margin:4px 0 0; }
+    .nb-brand { text-decoration:none; display:flex; align-items:center; }
+    .nb-logo { height:38px; width:auto; display:block; }
     .u-avatar { width:28px;height:28px;background:var(--nb-primary);color:#fff;border-radius:50%;display:flex;align-items:center;justify-content:center;font-family:var(--font-display);font-weight:700;font-size:.8rem; }
     /* Right-align navbar dropdowns reliably without Bootstrap JS/Popper */
     .dropdown-menu-end.show { position:absolute;right:0;left:auto;top:calc(100% + 6px);z-index:1040; }
@@ -253,7 +260,11 @@ export class AppComponent {
     public notif:        NotificationService,
     public chat:         ChatService,
     private router:      Router,
+    public geolocation:  GeolocationService,
+    private settings:    SettingsService,
   ) {
+    this.settings.load();
+
     // Poll for notifications + chat unread while logged in; clear on logout.
     // allowSignalWrites: start()/stop() reset unread-count signals synchronously.
     effect(() => {

@@ -5,10 +5,10 @@ name: Frontend CI + E2E
 
 on:
   push:
-    branches: [main, develop]
-    paths: ['frontend/**', 'e2e/**', 'playwright.config.ts', '.github/workflows/ci-frontend.yml']
+    branches: [main, prod]
+    paths: ['dev/**', 'e2e/**', 'playwright.config.ts', '.github/workflows/ci-frontend.yml']
   pull_request:
-    branches: [main, develop]
+    branches: [main, prod]
 
 jobs:
   build:
@@ -21,21 +21,21 @@ jobs:
         with:
           node-version: '20'
           cache: npm
-          cache-dependency-path: frontend/package-lock.json
+          cache-dependency-path: dev/package-lock.json
 
       - name: Install
-        working-directory: ./frontend
+        working-directory: ./dev
         run: npm ci
 
       - name: Build
-        working-directory: ./frontend
-        run: npm run build
+        working-directory: ./dev
+        run: npm run build -- --configuration production
 
       - name: Upload dist
         uses: actions/upload-artifact@v4
         with:
           name: angular-dist
-          path: frontend/dist/
+          path: dev/dist/
           retention-days: 1
 
   e2e:
@@ -60,18 +60,18 @@ jobs:
           node-version: '20'
 
       - name: Install frontend deps
-        working-directory: ./frontend
+        working-directory: ./dev
         run: npm ci
 
       - name: Install backend deps
-        working-directory: ./backend
+        working-directory: ./server
         run: npm ci
 
       - name: Install Playwright
         run: npx playwright install ${{ matrix.browser }} --with-deps
 
       - name: Start backend
-        working-directory: ./backend
+        working-directory: ./server
         env:
           NODE_ENV: test
           PORT: 5000
@@ -86,7 +86,7 @@ jobs:
           npx wait-on http://localhost:5000/health --timeout 30000
 
       - name: Seed DB
-        working-directory: ./backend
+        working-directory: ./server
         env:
           MONGO_URI: mongodb://localhost:27017/nearby_e2e
         run: node src/seeds/seed.js

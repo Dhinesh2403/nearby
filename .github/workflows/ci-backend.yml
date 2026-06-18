@@ -6,11 +6,11 @@ name: Backend CI
 
 on:
   push:
-    branches: [main, develop]
-    paths: ['backend/**', '.github/workflows/ci-backend.yml']
+    branches: [main, prod]
+    paths: ['server/**', '.github/workflows/ci-backend.yml']
   pull_request:
-    branches: [main, develop]
-    paths: ['backend/**']
+    branches: [main, prod]
+    paths: ['server/**']
 
 jobs:
   test:
@@ -37,14 +37,14 @@ jobs:
         with:
           node-version: '20'
           cache: npm
-          cache-dependency-path: backend/package-lock.json
+          cache-dependency-path: server/package-lock.json
 
       - name: Install
-        working-directory: ./backend
+        working-directory: ./server
         run: npm ci
 
       - name: Run tests
-        working-directory: ./backend
+        working-directory: ./server
         env:
           NODE_ENV: test
           PORT: 5001
@@ -57,6 +57,6 @@ jobs:
         run: npm test
 
       - name: Security audit
-        working-directory: ./backend
+        working-directory: ./server
         run: npm audit --audit-level=high
         continue-on-error: true

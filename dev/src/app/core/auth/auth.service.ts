@@ -7,12 +7,12 @@ import { throwError }  from 'rxjs';
 import { environment } from '../../../environments/environment';
 
 export interface User {
-  _id:    string;
-  name:   string;
-  email:  string;
-  role:   'customer' | 'provider' | 'admin';
-  avatar: string;
-  phone?:    string;
+  _id:      string;
+  name:     string;
+  email:    string;
+  role:     'customer' | 'provider' | 'admin';
+  avatar:   string;
+  phone?:   string;
   location?: { city?: string; address?: string; district?: string; area?: string };
 }
 
@@ -27,19 +27,40 @@ export class AuthService {
 
   constructor(private http: HttpClient, private router: Router) {}
 
-  // Register new account
-  register(payload: { name: string; email: string; phone: string; password: string; role: string; district?: string; area?: string }) {
-    return this.http.post<any>(`${this.API}/register`, payload).pipe(
-      tap(res => this.saveSession(res.data)),
-      catchError(err => throwError(() => err.error?.message ?? 'Registration failed'))
+  // Check if a phone number already has an account and whether a password is set.
+  checkPhone(phone: string) {
+    return this.http.post<any>(`${this.API}/check-phone`, { phone }).pipe(
+      catchError(err => throwError(() => err.error?.message ?? 'Check failed'))
     );
   }
 
-  // Login with email + password
-  login(email: string, password: string) {
-    return this.http.post<any>(`${this.API}/login`, { email, password }).pipe(
+  // Password-based login for users who have already set a password.
+  loginPhone(phone: string, password: string) {
+    return this.http.post<any>(`${this.API}/login-phone`, { phone, password }).pipe(
       tap(res => this.saveSession(res.data)),
       catchError(err => throwError(() => err.error?.message ?? 'Login failed'))
+    );
+  }
+
+  // Check if a Firebase ID token belongs to a new or existing user.
+  // Returns { isNewUser: boolean } without creating the account yet.
+  firebaseCheck(idToken: string) {
+    return this.http.post<any>(`${this.API}/firebase-check`, { idToken }).pipe(
+      catchError(err => throwError(() => err.error?.message ?? 'Phone verification failed'))
+    );
+  }
+
+  // Exchange a verified Firebase ID token for our own JWT session.
+  // profile is passed for new users; password is always passed so it gets set immediately.
+  firebaseVerify(
+    idToken: string,
+    role: 'customer' | 'provider' = 'customer',
+    profile?: { name?: string; city?: string; email?: string },
+    password?: string,
+  ) {
+    return this.http.post<any>(`${this.API}/firebase-verify`, { idToken, role, profile, password }).pipe(
+      tap(res => this.saveSession(res.data)),
+      catchError(err => throwError(() => err.error?.message ?? 'Phone verification failed'))
     );
   }
 
