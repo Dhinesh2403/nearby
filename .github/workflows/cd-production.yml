@@ -27,7 +27,7 @@ jobs:
       - name: Trigger Render deploy and wait
         uses: JorgeLNJunior/render-deploy@v1.5.0
         with:
-          service_id: ${{ secrets.RENDER_SERVICE_ID }}
+          service_id: ${{ secrets.RENDER_PRODUCTION_SERVICE_ID }}
           api_key: ${{ secrets.RENDER_API_KEY }}
           wait_deploy: true
           github_deployment: true
