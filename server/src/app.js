@@ -19,8 +19,17 @@ const { reviewRouter, complaintRouter, notifRouter, adminRouter, settingsRouter 
 const app = express();
 
 // ── CORS ──────────────────────────────────────────────────────
+const allowedOrigins = [
+  'http://localhost:4200',
+  process.env.CLIENT_URL,
+  process.env.STAGING_CLIENT_URL,
+].filter(Boolean);
+
 app.use(cors({
-  origin: process.env.CLIENT_URL || 'http://localhost:4200',
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+    callback(new Error(`CORS: origin ${origin} not allowed`));
+  },
   credentials: true,
   methods: ['GET','POST','PUT','DELETE','OPTIONS'],
 }));
