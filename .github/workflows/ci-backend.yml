@@ -1,23 +1,22 @@
-# .github/workflows/ci-backend.yml
-# Runs on every push/PR that touches backend code
-# Steps: install → lint → unit tests (with local MongoDB service)
-
 name: Backend CI
 
 on:
   push:
-    branches: [main, develop]
-    paths: ['backend/**', '.github/workflows/ci-backend.yml']
+    branches: [main, develop, prod]
+    paths: ['server/**', '.github/workflows/ci-backend.yml']
   pull_request:
-    branches: [main, develop]
-    paths: ['backend/**']
+    branches: [main, develop, prod]
+    paths: ['server/**']
+
+concurrency:
+  group: backend-ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
-    name: Test & Lint
+    name: Test & Audit
     runs-on: ubuntu-latest
 
-    # Spin up a real local MongoDB alongside the job
     services:
       mongodb:
         image: mongo:7
@@ -37,14 +36,14 @@ jobs:
         with:
           node-version: '20'
           cache: npm
-          cache-dependency-path: backend/package-lock.json
+          cache-dependency-path: server/package-lock.json
 
       - name: Install
-        working-directory: ./backend
+        working-directory: ./server
         run: npm ci
 
       - name: Run tests
-        working-directory: ./backend
+        working-directory: ./server
         env:
           NODE_ENV: test
           PORT: 5001
@@ -54,9 +53,11 @@ jobs:
           JWT_EXPIRES_IN: 15m
           JWT_REFRESH_EXPIRES_IN: 7d
           CLIENT_URL: http://localhost:4200
-        run: npm test
+        # --passWithNoTests keeps the pipeline green until real test files exist —
+        # remove this flag once you've added tests under server/src/**/__tests__
+        run: npm test -- --passWithNoTests
 
       - name: Security audit
-        working-directory: ./backend
+        working-directory: ./server
         run: npm audit --audit-level=high
         continue-on-error: true

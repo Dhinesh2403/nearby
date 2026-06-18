@@ -1,0 +1,45 @@
+name: Deploy Backend — Production
+
+on:
+  push:
+    branches: [prod]
+    paths: ['server/**']
+  workflow_dispatch: {}
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to Render (production)
+    runs-on: ubuntu-latest
+    environment:
+      name: production
+      url: ${{ vars.RENDER_PRODUCTION_URL }}
+    permissions:
+      deployments: write
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Trigger Render deploy and wait for result
+        uses: JorgeLNJunior/render-deploy@v1.5.0
+        with:
+          service_id: ${{ secrets.RENDER_SERVICE_ID }}
+          api_key: ${{ secrets.RENDER_API_KEY }}
+          wait_deploy: true
+          github_deployment: true
+          deployment_environment: production
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Smoke test
+        run: |
+          curl --fail --retry 6 --retry-delay 10 --retry-connrefused \
+            "${{ vars.RENDER_PRODUCTION_URL }}/health" | grep '"status":"ok"'
+
+      - name: Report result
+        if: always()
+        run: echo "Production deploy finished with status ${{ job.status }}"
