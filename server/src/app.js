@@ -23,6 +23,7 @@ const allowedOrigins = [
   'http://localhost:4200',
   process.env.CLIENT_URL,
   process.env.STAGING_CLIENT_URL,
+  process.env.RENDER_CLIENT_URL,
 ].filter(Boolean);
 
 app.use(cors({
