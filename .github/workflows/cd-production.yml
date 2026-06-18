@@ -1,4 +1,4 @@
-name: Deploy Backend — Production
+name: Deploy Production
 
 on:
   push:
@@ -22,10 +22,9 @@ jobs:
       contents: read
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Trigger Render deploy and wait for result
+      - name: Trigger Render deploy and wait
         uses: JorgeLNJunior/render-deploy@v1.5.0
         with:
           service_id: ${{ secrets.RENDER_SERVICE_ID }}
@@ -39,7 +38,3 @@ jobs:
         run: |
           curl --fail --retry 6 --retry-delay 10 --retry-connrefused \
             "${{ vars.RENDER_PRODUCTION_URL }}/health" | grep '"status":"ok"'
-
-      - name: Report result
-        if: always()
-        run: echo "Production deploy finished with status ${{ job.status }}"
