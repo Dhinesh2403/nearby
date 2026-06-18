@@ -9,9 +9,12 @@ const rateLimit = require('express-rate-limit');
 // Route imports
 const authRoutes     = require('./routes/auth');
 const providerRoutes = require('./routes/providers');
-const bookingRoutes  = require('./routes/bookings');
 const chatRoutes     = require('./routes/chats');
-const { reviewRouter, complaintRouter, notifRouter, adminRouter } = require('./routes/extras');
+const categoryRoutes = require('./routes/categories');
+const adsRoutes      = require('./routes/ads');
+const leadRoutes     = require('./routes/leads');
+const uploadRoutes   = require('./routes/uploads');
+const { reviewRouter, complaintRouter, notifRouter, adminRouter, settingsRouter } = require('./routes/extras');
 
 const app = express();
 
@@ -42,12 +45,16 @@ app.get('/health', (_, res) =>
 // ── ROUTES ────────────────────────────────────────────────────
 app.use('/api/auth',          authRoutes);
 app.use('/api/providers',     providerRoutes);
-app.use('/api/bookings',      bookingRoutes);
 app.use('/api/chats',         chatRoutes);
 app.use('/api/reviews',       reviewRouter);
 app.use('/api/complaints',    complaintRouter);
 app.use('/api/notifications', notifRouter);
 app.use('/api/admin',         adminRouter);
+app.use('/api/settings',      settingsRouter);
+app.use('/api/categories',    categoryRoutes);
+app.use('/api/ads',           adsRoutes);
+app.use('/api/leads',         leadRoutes);
+app.use('/api/uploads',       uploadRoutes);
 
 // ── 404 ───────────────────────────────────────────────────────
 app.use((req, res) =>

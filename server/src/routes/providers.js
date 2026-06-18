@@ -1,25 +1,55 @@
 // src/routes/providers.js
 const router   = require('express').Router();
-const { Provider, User } = require('../models');
-const { ok, paginated, fail } = require('../utils/helpers');
+const { Provider, User, ContactLog, ProfileView, Review, AdReward, AppSettings } = require('../models');
+const { ok, paginated, fail, pushNotify } = require('../utils/helpers');
 const { protect, authorize }  = require('../middleware/auth');
 
-// GET /api/providers — browse with filters
+// How many rewarded ads must be watched to unlock the visitor list —
+// admin-configurable via AppSettings (5.12), default 2.
+const adsRequired = async () => (await AppSettings.getSingleton()).adsRequiredCount ?? 2;
+
+// Compute a provider's profile-completion percentage from filled fields.
+const completionPct = (p) => {
+  const checks = [
+    !!p.businessName, !!p.tagline, !!p.bio, !!p.category, !!p.subCategory,
+    (p.skills?.length || 0) > 0, (p.images?.length || 0) > 0,
+    p.price > 0, p.experience > 0, (p.availability?.days?.length || 0) > 0,
+  ];
+  return Math.round((checks.filter(Boolean).length / checks.length) * 100);
+};
+
+// GET /api/providers — browse with filters + keyword search (7.10)
 router.get('/', async (req, res, next) => {
   try {
-    const { category, isOnline, rating, city, district, page = 1, limit = 12, sort = 'rating' } = req.query;
+    const { category, isOnline, rating, city, district, search, page = 1, limit = 12, sort = 'rating' } = req.query;
 
     const filter = { status: 'active', isVerified: true };
     if (category && category !== 'all') filter.category = category;
     if (isOnline === 'true')            filter.isOnline  = true;
     if (rating)                         filter.ratingAvg = { $gte: +rating };
 
-    const sortMap = { rating: { ratingAvg: -1 }, bookings: { totalBookings: -1 }, price_asc: { price: 1 }, price_desc: { price: -1 } };
+    // Fuzzy keyword search across business name, sub-category, skills and bio.
+    if (search && search.trim()) {
+      const safe = search.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');  // escape regex
+      const rx   = new RegExp(safe, 'i');
+      filter.$or = [
+        { businessName: rx },
+        { subCategory:  rx },
+        { skills:       rx },   // matches any element of the skills array
+        { bio:          rx },
+        { tagline:      rx },
+      ];
+    }
+
+    const sortMap = { rating: { ratingAvg: -1 }, popular: { ratingCount: -1 }, price_asc: { price: 1 }, price_desc: { price: -1 } };
     const sortObj = sortMap[sort] || { ratingAvg: -1 };
 
-    let query = Provider.find(filter).populate('userId', 'name avatar location').sort(sortObj);
+    let query = Provider.find(filter).populate('userId', 'name avatar location isDemo').sort(sortObj);
 
     let all = await query;
+
+    // Never surface demo (internal test) accounts to real users.
+    all = all.filter(p => !p.userId?.isDemo);
 
     // District is the primary medium for offline services: only providers in the
     // same district are shown, EXCEPT online providers who can serve any district.
@@ -44,6 +74,7 @@ router.get('/nearby', async (req, res, next) => {
     if (!lat || !lng) return fail(res, 'lat and lng are required.');
 
     const nearbyUsers = await User.find({
+      isDemo: { $ne: true },
       location: {
         $near: {
           $geometry: { type: 'Point', coordinates: [+lng, +lat] },
@@ -70,12 +101,177 @@ router.get('/my', protect, authorize('provider'), async (req, res, next) => {
   } catch (e) { next(e); }
 });
 
+// GET /api/providers/my/stats — dashboard metrics for the logged-in provider
+router.get('/my/stats', protect, authorize('provider'), async (req, res, next) => {
+  try {
+    const p = await Provider.findOne({ userId: req.user._id });
+    if (!p) return fail(res, 'Provider profile not found.', 404);
+
+    const now        = new Date();
+    const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const startWeek  = new Date(startToday); startWeek.setDate(startWeek.getDate() - 6);
+
+    const [viewsAll, viewsWeek, viewsToday, contactsAll, contactsWeek] = await Promise.all([
+      ProfileView.countDocuments({ providerId: p._id }),
+      ProfileView.countDocuments({ providerId: p._id, createdAt: { $gte: startWeek } }),
+      ProfileView.countDocuments({ providerId: p._id, createdAt: { $gte: startToday } }),
+      ContactLog.countDocuments({ providerId: p._id }),
+      ContactLog.countDocuments({ providerId: p._id, createdAt: { $gte: startWeek } }),
+    ]);
+
+    ok(res, {
+      views:    { today: viewsToday, week: viewsWeek, all: viewsAll },
+      contacts: { week: contactsWeek, all: contactsAll },
+      rating:   { avg: p.ratingAvg, count: p.ratingCount },
+      completion: completionPct(p),
+    });
+  } catch (e) { next(e); }
+});
+
+// GET /api/providers/my/visitors/teaser — count + unlock state (4.8)
+router.get('/my/visitors/teaser', protect, authorize('provider'), async (req, res, next) => {
+  try {
+    const p = await Provider.findOne({ userId: req.user._id });
+    if (!p) return fail(res, 'Provider profile not found.', 404);
+
+    const now       = new Date();
+    const startWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    startWeek.setDate(startWeek.getDate() - 6);
+
+    const required    = await adsRequired();
+    const count       = await ProfileView.countDocuments({ providerId: p._id, createdAt: { $gte: startWeek } });
+    const adsWatched  = await AdReward.countDocuments({ providerId: p._id, unlockedVisitorBatch: false });
+    const unlocked    = adsWatched >= required;
+
+    ok(res, { count, unlocked, adsWatched, adsRequired: required });
+  } catch (e) { next(e); }
+});
+
+// POST /api/providers/my/ad-reward — record one verified rewarded-ad completion
+// When the threshold is reached, flag the batch unlocked + notify the provider (4.9).
+router.post('/my/ad-reward', protect, authorize('provider'), async (req, res, next) => {
+  try {
+    const p = await Provider.findOne({ userId: req.user._id });
+    if (!p) return fail(res, 'Provider profile not found.', 404);
+
+    await AdReward.create({ providerId: p._id });
+    const required   = await adsRequired();
+    const adsWatched = await AdReward.countDocuments({ providerId: p._id, unlockedVisitorBatch: false });
+    const unlocked   = adsWatched >= required;
+
+    if (unlocked) {
+      await AdReward.updateMany(
+        { providerId: p._id, unlockedVisitorBatch: false },
+        { unlockedVisitorBatch: true }
+      );
+      await pushNotify(req.app.locals.io, req.user._id, {
+        type:  'visitors_unlocked',
+        title: 'Visitor list unlocked!',
+        body:  'You can now see who visited your profile this week.',
+        link:  '/dashboard/provider',
+      });
+    }
+
+    ok(res, { adsWatched, adsRequired: required, unlocked });
+  } catch (e) { next(e); }
+});
+
+// GET /api/providers/my/visitors — full visitor list (only when unlocked) (4.8)
+router.get('/my/visitors', protect, authorize('provider'), async (req, res, next) => {
+  try {
+    const p = await Provider.findOne({ userId: req.user._id });
+    if (!p) return fail(res, 'Provider profile not found.', 404);
+
+    const required    = await adsRequired();
+    const unlockedAds = await AdReward.countDocuments({ providerId: p._id, unlockedVisitorBatch: true });
+    if (unlockedAds < required)
+      return fail(res, 'Watch the rewarded ads to unlock your visitor list.', 403);
+
+    const now       = new Date();
+    const startWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    startWeek.setDate(startWeek.getDate() - 6);
+
+    const views = await ProfileView.find({ providerId: p._id, createdAt: { $gte: startWeek } })
+      .populate('customerId', 'name phone')
+      .sort({ createdAt: -1 })
+      .limit(100);
+
+    // Mask phone numbers; reveal name when available.
+    const visitors = views.map(v => ({
+      name:      v.customerId?.name ?? 'Guest visitor',
+      phone:     v.customerId?.phone ? `+91 ••••• ${v.customerId.phone.slice(-4)}` : '—',
+      visitedAt: v.createdAt,
+    }));
+
+    ok(res, visitors);
+  } catch (e) { next(e); }
+});
+
+// POST /api/providers/:id/view — log a profile view (public; optional auth)
+router.post('/:id/view', async (req, res, next) => {
+  try {
+    // Skip view logging for demo (internal test) providers — don't pollute their stats.
+    const providerForCheck = await Provider.findById(req.params.id).populate('userId', 'isDemo');
+    if (!providerForCheck || providerForCheck.userId?.isDemo) return ok(res, null, 'View logged.');
+
+    // Optional auth: attach customerId if a valid token was sent.
+    let customerId = null;
+    const header = req.headers.authorization;
+    if (header?.startsWith('Bearer ')) {
+      try {
+        const jwt = require('jsonwebtoken');
+        const decoded = jwt.verify(header.split(' ')[1], process.env.JWT_SECRET);
+        customerId = decoded.userId;
+      } catch { /* ignore — treat as guest */ }
+    }
+    await ProfileView.create({
+      providerId: req.params.id,
+      customerId,
+      guestId: customerId ? '' : (req.body.guestId || ''),
+    });
+    ok(res, null, 'View logged.');
+  } catch (e) { next(e); }
+});
+
 // GET /api/providers/:id — single profile
 router.get('/:id', async (req, res, next) => {
   try {
     const p = await Provider.findById(req.params.id).populate('userId', 'name avatar location phone email');
     if (!p) return fail(res, 'Provider not found.', 404);
     ok(res, p);
+  } catch (e) { next(e); }
+});
+
+// POST /api/providers/:id/contact — reveal contact + log the handoff
+// Customer must be logged in (phone-verified). Records which channel was
+// used and returns the provider's real phone for the call/WhatsApp action.
+router.post('/:id/contact', protect, async (req, res, next) => {
+  try {
+    const { channel } = req.body;
+    if (!['call', 'whatsapp'].includes(channel))
+      return fail(res, "channel must be 'call' or 'whatsapp'.");
+
+    const provider = await Provider.findById(req.params.id).populate('userId', 'phone isDemo');
+    if (!provider) return fail(res, 'Provider not found.', 404);
+
+    // Skip contact logging and notification for demo (internal test) providers.
+    if (!provider.userId?.isDemo) {
+      await ContactLog.create({
+        customerId: req.user._id,
+        providerId: provider._id,
+        channel,
+      });
+
+      // 8.1 — notify the provider that a customer reached out.
+      await pushNotify(req.app.locals.io, provider.userId?._id, {
+        type:  'contact',
+        title: channel === 'whatsapp' ? 'New WhatsApp enquiry' : 'New call enquiry',
+        body:  `${req.user.name} requested your contact details.`,
+        link:  '/dashboard/provider',
+      });
+    }
+
+    ok(res, { phone: provider.userId?.phone ?? '' }, 'Contact revealed.');
   } catch (e) { next(e); }
 });
 

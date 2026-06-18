@@ -23,7 +23,7 @@ interface Msg { id:string; senderId:string; senderName:string; text:string; imag
           <div class="ch-av">{{ otherName.charAt(0) }}</div>
           <div class="flex-grow-1">
             <p class="ch-name">{{ otherName }}</p>
-            <p class="ch-meta"><span class="ondot"></span>Online · Booking chat</p>
+            <p class="ch-meta"><span class="ondot"></span>Online · Chat</p>
           </div>
         </div>
       </div>

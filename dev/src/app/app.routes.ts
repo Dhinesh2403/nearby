@@ -21,21 +21,16 @@ export const routes: Routes = [
   { path: 'auth/register',
     loadComponent: () => import('./features/auth/register.component').then(m => m.RegisterComponent) },
 
+  { path: 'provider-signup',
+    loadComponent: () => import('./features/auth/provider-register.component').then(m => m.ProviderRegisterComponent) },
+
   { path: 'dashboard/customer',   canActivate: [roleGuard('customer')],
     loadComponent: () => import('./features/dashboard/customer-dashboard.component').then(m => m.CustomerDashboardComponent) },
 
   { path: 'dashboard/provider',   canActivate: [roleGuard('provider')],
     loadComponent: () => import('./features/dashboard/provider-dashboard.component').then(m => m.ProviderDashboardComponent) },
 
-  // Only customers can create a booking — admins/providers are bounced by the guard.
-  { path: 'booking/new',          canActivate: [roleGuard('customer')],
-    loadComponent: () => import('./features/booking/booking-form.component').then(m => m.BookingFormComponent) },
-
-  // A booking is viewed by the customer or the provider involved (not admin).
-  { path: 'booking/:id',          canActivate: [roleGuard('customer', 'provider')],
-    loadComponent: () => import('./features/booking/booking-detail.component').then(m => m.BookingDetailComponent) },
-
-  { path: 'chats',                canActivate: [roleGuard('customer', 'provider')],
+{ path: 'chats',                canActivate: [roleGuard('customer', 'provider')],
     loadComponent: () => import('./features/chat/chats-list.component').then(m => m.ChatsListComponent) },
 
   { path: 'chat/:conversationId', canActivate: [roleGuard('customer', 'provider')],

@@ -49,26 +49,11 @@ export interface Provider {
   isOnline:     boolean;
   ratingAvg:    number;
   ratingCount:  number;
-  totalBookings:number;
   price:        number;
   priceMax?:    number;
   status:       string;
+  banReason?:   string;
   availability: { days: string[]; startTime: string; endTime: string };
-}
-
-export interface Booking {
-  _id:           string;
-  customerId:    any;
-  providerId:    any;
-  serviceId:     any;
-  bookingType:   string;
-  scheduledDate: string;
-  scheduledTime: string;
-  address:       string;
-  meetingLink:   string;
-  status:        string;
-  notes:         string;
-  createdAt:     string;
 }
 
 export interface ApiResponse<T> {
@@ -134,11 +119,9 @@ export class SocketService implements OnDestroy {
       reconnectionDelay:     2000,
     });
     this.socket.on('connect', () => {
-      console.log('🟢 Socket connected');
       // Re-join the personal room after (re)connect so live updates keep working
       if (this.userRoomId) this.socket?.emit('join_user_room', { userId: this.userRoomId });
     });
-    this.socket.on('disconnect',    () => console.log('🔴 Socket disconnected'));
     this.socket.on('connect_error', (e: any) => console.warn('Socket error', e.message));
   }
 
@@ -153,18 +136,17 @@ export class SocketService implements OnDestroy {
     });
   }
 
-  joinRoom(bookingId: string, userId: string) { this.emit('join_room', { bookingId, userId }); }
+  // Conversation room — join to receive live messages for a specific chat
+  joinRoom(roomId: string, _userId?: string) { this.emit('join_room', { roomId }); }
+  leaveRoom(roomId: string) { this.emit('leave_room', { roomId }); }
+
   // Personal room — lets the server push live updates (e.g. unread badge)
   joinUserRoom(userId: string) { this.userRoomId = userId; this.emit('join_user_room', { userId }); }
-  sendMsg(bookingId: string, senderId: string, senderName: string, text: string) {
-    this.emit('send_message', { bookingId, senderId, senderName, text });
-  }
   markSeen(roomId: string, userId: string) { this.emit('mark_seen', { roomId, userId }); }
-  onMessage()       { return this.on<any>('receive_message'); }
-  onSeen()          { return this.on<any>('messages_seen'); }
-  onChatNew()       { return this.on<any>('chat:new'); }
-  onNotifyNew()     { return this.on<any>('notify:new'); }
-  onBookingUpdate() { return this.on<any>('booking_update');  }
+  onMessage()   { return this.on<any>('receive_message'); }
+  onSeen()      { return this.on<any>('messages_seen'); }
+  onChatNew()   { return this.on<any>('chat:new'); }
+  onNotifyNew() { return this.on<any>('notify:new'); }
 
   ngOnDestroy() { this.disconnect(); }
 }

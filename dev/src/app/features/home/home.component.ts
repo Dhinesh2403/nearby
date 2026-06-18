@@ -4,12 +4,30 @@ import { Router, RouterLink }  from '@angular/router';
 import { CommonModule }        from '@angular/common';
 import { FormsModule }         from '@angular/forms';
 import { ApiService, Provider, PaginatedResponse } from '../../core/services/api.service';
+import { JdSearchBarComponent } from '../../shared/components/jd-search-bar.component';
+import { SettingsService } from '../../core/services/settings.service';
 
 @Component({
   selector: 'app-home',
   standalone: true,
-  imports: [CommonModule, RouterLink, FormsModule],
+  imports: [CommonModule, RouterLink, FormsModule, JdSearchBarComponent],
   template: `
+    <!-- GLOBAL ANNOUNCEMENT (5.13) -->
+    @if (settings.settings()?.announcement?.active && settings.settings()?.announcement?.text) {
+      <div class="announce-bar">
+        <i class="bi bi-megaphone-fill me-2"></i>{{ settings.settings()!.announcement.text }}
+      </div>
+    }
+
+    <!-- RECENTLY BANNED SCAM ALERT (5.10) -->
+    @if ((settings.settings()?.recentlyBanned?.length ?? 0) > 0) {
+      <div class="scam-bar">
+        <i class="bi bi-shield-exclamation me-2"></i>
+        <strong>Safety alert:</strong>&nbsp;Recently suspended for policy violations —
+        {{ settings.settings()!.recentlyBanned.join(', ') }}. Avoid contact.
+      </div>
+    }
+
     <!-- HERO -->
     <section class="hero-section">
       <div class="hero-pattern"></div>
@@ -19,12 +37,7 @@ import { ApiService, Provider, PaginatedResponse } from '../../core/services/api
             <div class="hero-tag"><i class="bi bi-geo-alt-fill me-1"></i>Serving Chennai & growing fast</div>
             <h1 class="hero-title">Find Trusted<br><span class="hero-accent">Local Services</span><br>Near You</h1>
             <p class="hero-sub">Plumbers, tutors, home cooks, electricians — all verified, reviewed, and bookable in under 60 seconds.</p>
-            <div class="hero-search">
-              <div class="hs-icon"><i class="bi bi-search"></i></div>
-              <input type="text" [(ngModel)]="q" placeholder="Search plumber, tutor, tiffin..."
-                     (keyup.enter)="search()" class="hs-input" />
-              <button class="hs-btn" (click)="search()">Search</button>
-            </div>
+            <app-jd-search-bar (searchSubmit)="onJdSearch($event)" />
             <div class="hero-stats">
               <div class="hs-stat"><span class="hs-num">500+</span><span class="hs-lbl">Verified Providers</span></div>
               <div class="hs-div"></div>
@@ -37,7 +50,7 @@ import { ApiService, Provider, PaginatedResponse } from '../../core/services/api
             <div class="hero-illo">
               <div class="fc fc1"><i class="bi bi-tools" style="color:#2563A8"></i><div><p class="fc-name">Rajan Plumbing</p><div class="fc-stars">★★★★★</div></div></div>
               <div class="fc fc2"><i class="bi bi-book" style="color:#059669"></i><div><p class="fc-name">Priya Maths Tutor</p><div class="fc-stars">★★★★★</div></div></div>
-              <div class="fc fc3"><i class="bi bi-check-circle-fill" style="color:#4ade80"></i><span>Booking confirmed!</span></div>
+              <div class="fc fc3"><i class="bi bi-check-circle-fill" style="color:#4ade80"></i><span>Contact revealed!</span></div>
               <div class="hero-circle"></div>
               <div class="hero-circle-inner"><i class="bi bi-geo-alt-fill"></i></div>
             </div>
@@ -51,8 +64,9 @@ import { ApiService, Provider, PaginatedResponse } from '../../core/services/api
       <div class="container">
         <div class="text-center mb-4"><h2 class="section-title">Browse by Category</h2><p class="section-sub">From home repairs to learning — find everything local</p></div>
         <div class="cat-grid">
-          @for (c of cats; track c.id) {
+          @for (c of cats(); track c.id) {
             <div class="cat-chip" (click)="browseCat(c.id)" [style.--cc]="c.color">
+              @if (c.featured) { <span class="cc-featured">Featured</span> }
               <div class="cc-icon"><i class="bi" [class]="c.icon"></i></div>
               <span class="cc-lbl">{{ c.label }}</span>
               <span class="cc-cnt">{{ c.count }}</span>
@@ -116,7 +130,7 @@ import { ApiService, Provider, PaginatedResponse } from '../../core/services/api
                     <hr class="divider my-2">
                     <div class="d-flex justify-content-between align-items-center">
                       <span class="fw-display" style="font-weight:700;color:var(--nb-primary)">₹{{ p.price }}<span style="font-weight:400;font-size:.75rem;color:var(--nb-text-muted)"> onwards</span></span>
-                      <button class="btn-nb-primary btn btn-sm">Book Now</button>
+                      <button class="btn-nb-primary btn btn-sm"><i class="bi bi-chat-dots me-1"></i>Contact</button>
                     </div>
                   </div>
                 </div>
@@ -133,20 +147,25 @@ import { ApiService, Provider, PaginatedResponse } from '../../core/services/api
         <h2 class="cta-title">Are you a local professional?</h2>
         <p class="cta-sub">List your services for free and reach thousands of customers in your city.</p>
         <div class="d-flex gap-3 justify-content-center flex-wrap">
-          <a routerLink="/auth/register" class="btn-nb-accent btn btn-lg">Join as Provider — Free</a>
+          <a routerLink="/provider-signup" class="btn-nb-accent btn btn-lg">Join as Provider — Free</a>
           <a routerLink="/browse" class="btn btn-lg" style="background:rgba(255,255,255,.15);color:#fff;border:1px solid rgba(255,255,255,.3);border-radius:var(--radius-md)">Browse Services</a>
         </div>
       </div>
     </section>
   `,
   styles: [`
-    .hero-section { background:linear-gradient(135deg,#0F2744 0%,#1A3C5E 60%,#1e4d7a 100%); padding:80px 0 60px; position:relative; overflow:hidden; }
+    .announce-bar { background:linear-gradient(90deg,var(--nb-primary),var(--nb-primary-light)); color:#fff; text-align:center; padding:10px 16px; font-size:.875rem; font-weight:600; font-family:var(--font-display); }
+    .scam-bar { background:#FEE2E2; color:#991b1b; text-align:center; padding:10px 16px; font-size:.85rem; border-bottom:1px solid #FECACA; }
+    .hero-section { background:linear-gradient(135deg,#0F2744 0%,#1A3C5E 60%,#1e4d7a 100%); padding:80px 0 60px; position:relative; overflow:visible; }
     .hero-pattern { position:absolute; inset:0; background-image:radial-gradient(circle at 20% 80%,rgba(245,158,11,.08) 0%,transparent 50%),radial-gradient(circle at 80% 20%,rgba(37,99,168,.15) 0%,transparent 50%); }
     .hero-tag { display:inline-flex; align-items:center; background:rgba(245,158,11,.15); color:var(--nb-accent); border:1px solid rgba(245,158,11,.3); border-radius:20px; padding:4px 14px; font-size:.78rem; font-family:var(--font-display); font-weight:600; letter-spacing:.05em; text-transform:uppercase; margin-bottom:1rem; }
     .hero-title { font-size:clamp(2.2rem,5vw,3.5rem); font-weight:800; color:#fff; line-height:1.1; margin-bottom:1rem; }
     .hero-accent { color:var(--nb-accent); }
     .hero-sub { color:rgba(255,255,255,.7); font-size:1.05rem; max-width:440px; margin-bottom:2rem; }
     .hero-search { display:flex; align-items:center; background:#fff; border-radius:var(--radius-xl); padding:6px 6px 6px 18px; box-shadow:0 8px 32px rgba(0,0,0,.2); max-width:520px; margin-bottom:2rem; }
+    .hero-location { max-width:520px; margin-bottom:2rem; animation:slideUp .3s ease-out; }
+    .hero-service { max-width:520px; margin-bottom:2rem; animation:slideUp .3s ease-out; }
+    @keyframes slideUp { from { opacity:0; transform:translateY(12px); } to { opacity:1; transform:translateY(0); } }
     .hs-icon { color:var(--nb-text-muted); margin-right:8px; }
     .hs-input { flex:1; border:none; outline:none; font-family:var(--font-body); font-size:.95rem; background:transparent; }
     .hs-input::placeholder { color:var(--nb-text-light); }
@@ -167,13 +186,15 @@ import { ApiService, Provider, PaginatedResponse } from '../../core/services/api
     .fc-name { margin:0; font-family:var(--font-display); font-size:.85rem; font-weight:700; }
     .fc-stars { color:var(--nb-accent); font-size:.7rem; }
     @keyframes floatY { 0%,100% { transform:translateY(0); } 50% { transform:translateY(-10px); } }
-    .cat-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(110px,1fr)); gap:12px; }
-    .cat-chip { display:flex; flex-direction:column; align-items:center; gap:8px; padding:18px 12px; background:#fff; border:1.5px solid var(--nb-border); border-radius:var(--radius-lg); cursor:pointer; transition:all .2s; text-align:center; }
-    .cat-chip:hover { border-color:var(--cc,var(--nb-primary)); box-shadow:0 4px 16px rgba(0,0,0,.08); transform:translateY(-2px); }
-    .cc-icon { width:48px; height:48px; border-radius:var(--radius-md); display:flex; align-items:center; justify-content:center; background:color-mix(in srgb,var(--cc,var(--nb-primary)) 12%,white); }
-    .cc-icon i { font-size:1.4rem; color:var(--cc,var(--nb-primary)); }
-    .cc-lbl { font-family:var(--font-display); font-size:.72rem; font-weight:700; text-transform:uppercase; letter-spacing:.04em; }
-    .cc-cnt { font-size:.7rem; color:var(--nb-text-muted); }
+    .cat-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(140px,1fr)); gap:16px; }
+    @media (max-width:768px) { .cat-grid { grid-template-columns:repeat(auto-fill,minmax(120px,1fr)); } }
+    .cat-chip { position:relative; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:12px; padding:28px 16px; background:linear-gradient(135deg,color-mix(in srgb,var(--cc,var(--nb-primary)) 8%,white) 0%,#fff 100%); border:1.5px solid color-mix(in srgb,var(--cc,var(--nb-primary)) 15%,white); border-radius:var(--radius-xl); cursor:pointer; transition:all .25s cubic-bezier(.4,.0,.2,1); text-align:center; box-shadow:0 2px 8px rgba(0,0,0,.04); min-height:180px; }
+    .cat-chip:hover { border-color:var(--cc,var(--nb-primary)); box-shadow:0 12px 32px color-mix(in srgb,var(--cc,var(--nb-primary)) 15%,rgba(0,0,0,0)); transform:translateY(-4px); background:linear-gradient(135deg,color-mix(in srgb,var(--cc,var(--nb-primary)) 12%,white) 0%,#fff 100%); }
+    .cc-icon { width:64px; height:64px; border-radius:var(--radius-lg); display:flex; align-items:center; justify-content:center; background:linear-gradient(135deg,var(--cc,var(--nb-primary)),color-mix(in srgb,var(--cc,var(--nb-primary)) 70%,#fff)); box-shadow:0 4px 16px color-mix(in srgb,var(--cc,var(--nb-primary)) 30%,rgba(0,0,0,0)); }
+    .cc-icon i { font-size:1.8rem; color:#fff; }
+    .cc-lbl { font-family:var(--font-display); font-size:.85rem; font-weight:700; text-transform:capitalize; letter-spacing:.02em; color:var(--nb-text); }
+    .cc-cnt { font-size:.72rem; color:var(--nb-text-muted); font-weight:500; }
+    .cc-featured { position:absolute; top:8px; right:8px; background:var(--nb-accent); color:var(--nb-primary); font-size:.6rem; font-weight:800; text-transform:uppercase; letter-spacing:.04em; padding:2px 7px; border-radius:10px; }
     .step-card { background:#fff; border-radius:var(--radius-lg); padding:2rem; border:1px solid var(--nb-border); text-align:center; position:relative; transition:all .25s; }
     .step-card:hover { box-shadow:var(--shadow-lg); transform:translateY(-4px); }
     .step-n { position:absolute; top:-16px; left:50%; transform:translateX(-50%); width:32px; height:32px; background:var(--nb-primary); color:#fff; border-radius:50%; font-family:var(--font-display); font-weight:800; font-size:.85rem; display:flex; align-items:center; justify-content:center; }
@@ -189,18 +210,19 @@ import { ApiService, Provider, PaginatedResponse } from '../../core/services/api
   `]
 })
 export class HomeComponent implements OnInit {
-  q = '';
   topProviders    = signal<Provider[]>([]);
   loadingProviders = signal(true);
 
-  cats = [
-    { id:'home_services', label:'Home Services', icon:'bi-tools',       count:'180+', color:'#2563A8' },
-    { id:'education',     label:'Education',     icon:'bi-mortarboard', count:'120+', color:'#059669' },
-    { id:'food',          label:'Food',          icon:'bi-basket2',     count:'90+',  color:'#D97706' },
-    { id:'wellness',      label:'Wellness',      icon:'bi-heart-pulse', count:'60+',  color:'#7C3AED' },
-    { id:'events',        label:'Events',        icon:'bi-camera',      count:'40+',  color:'#DC2626' },
-    { id:'all',           label:'View All',      icon:'bi-grid',        count:'500+', color:'#1A3C5E' },
-  ];
+  // Seeded with sensible defaults, then replaced by live data from
+  // GET /api/categories (icons/colours/counts/featured flags — 7.11).
+  cats = signal<any[]>([
+    { id:'home_services', label:'Home Services', icon:'bi-tools',       count:'', color:'#2563A8' },
+    { id:'education',     label:'Education',     icon:'bi-mortarboard', count:'', color:'#059669' },
+    { id:'food',          label:'Food',          icon:'bi-basket2',     count:'', color:'#D97706' },
+    { id:'wellness',      label:'Wellness',      icon:'bi-heart-pulse', count:'', color:'#7C3AED' },
+    { id:'events',        label:'Events',        icon:'bi-camera',      count:'', color:'#DC2626' },
+    { id:'all',           label:'View All',      icon:'bi-grid',        count:'', color:'#1A3C5E' },
+  ]);
 
   steps = [
     { n:1, icon:'bi-search',         title:'Search & Browse',  desc:'Find providers by category, location, or keyword. Filter by rating and remote availability.' },
@@ -208,7 +230,9 @@ export class HomeComponent implements OnInit {
     { n:3, icon:'bi-star',           title:'Rate & Review',    desc:'After service, leave a review to help others. Build a trustworthy community.' },
   ];
 
-  constructor(private api: ApiService, private router: Router) {}
+  // Auto-detected area label (e.g. "Vadavalli, Coimbatore") for the location box (11.2)
+
+  constructor(private api: ApiService, private router: Router, public settings: SettingsService) {}
 
   ngOnInit() {
     this.api.get<PaginatedResponse<Provider>>('/providers', { limit: '6', sort: 'rating' })
@@ -216,10 +240,30 @@ export class HomeComponent implements OnInit {
         next: res => { this.topProviders.set(res.data); this.loadingProviders.set(false); },
         error: ()  => this.loadingProviders.set(false),
       });
+
+    // Live category metadata + counts (7.11). Append the static "View All".
+    this.api.get<{ data: any[] }>('/categories').subscribe({
+      next: res => {
+        const live = (res.data ?? []).map(c => ({
+          id: c.id, label: c.label, icon: c.icon, color: c.color,
+          count: c.count ? `${c.count} listed` : 'New', featured: c.featured,
+        }));
+        if (live.length) {
+          this.cats.set([...live, { id:'all', label:'View All', icon:'bi-grid', count:'', color:'#1A3C5E' }]);
+        }
+      },
+      // keep the seeded defaults on error
+    });
   }
 
-  search()             { this.router.navigate(['/browse'], { queryParams: this.q.trim() ? { q: this.q } : {} }); }
-  browseCat(id: string){ this.router.navigate(['/browse'], { queryParams: { category: id } }); }
+  browseCat(id: string)         { this.router.navigate(['/browse'], { queryParams: { category: id } }); }
+
+  onJdSearch(e: { location: string; q: string }) {
+    const qp: Record<string, string> = {};
+    if (e.q) qp['q'] = e.q;
+    if (e.location) qp['district'] = e.location;
+    this.router.navigate(['/browse'], { queryParams: qp });
+  }
 
   catColor(id: string) {
     const m: Record<string,string> = { home_services:'#2563A8', education:'#059669', food:'#D97706', wellness:'#7C3AED', events:'#DC2626' };

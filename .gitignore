@@ -1,15 +1,49 @@
 node_modules/
+
+# ── Environment / secrets ──────────────────────────────────────
 .env
-*.log
+.env.*
+!.env.example
+secrets.json
+
+# ── Credentials & keys ─────────────────────────────────────────
+*.pem
+*.key
+*.crt
+*.cert
+*.p12
+*.pfx
+*.jks
+*.keystore
+.npmrc
+
+# ── Firebase ───────────────────────────────────────────────────
+firebase-service-account.json
+google-services.json
+GoogleService-Info.plist
+
+# ── Build output ───────────────────────────────────────────────
 dist/
 .angular/
+
+# ── Test / coverage ────────────────────────────────────────────
 coverage/
 playwright-report/
 test-results/
+
+# ── Logs ───────────────────────────────────────────────────────
+*.log
+npm-debug.log*
+
+# ── OS / tooling ───────────────────────────────────────────────
 .DS_Store
 Thumbs.db
 *.zip
+
+# ── Docs generated locally ─────────────────────────────────────
 README.md
-SETUP_GUIDE.md
+docs/
+
+# ── IDE / tool state ───────────────────────────────────────────
 .allai/
 .claude/

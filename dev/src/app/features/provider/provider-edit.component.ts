@@ -77,8 +77,15 @@ import { ToastService } from '../../core/services/toast.service';
             Set a range for varied work (e.g. different cakes). Leave "Price To" as 0 for a single price.
           </p>
           <div class="mb-3">
-            <label class="nb-label">Skills <span class="text-muted-nb" style="font-weight:400">(comma separated)</span></label>
-            <input type="text" class="nb-input" [(ngModel)]="skillsText" placeholder="Pipe Fitting, Drain Cleaning, Tap Installation" />
+            <label class="nb-label">Service Tags <span class="text-muted-nb" style="font-weight:400">(press Enter or comma to add)</span></label>
+            <div class="tag-input" (click)="tagBox.focus()">
+              @for (s of form.skills; track s; let i = $index) {
+                <span class="tag-chip">{{ s }}<button type="button" (click)="removeTag(i)"><i class="bi bi-x"></i></button></span>
+              }
+              <input #tagBox type="text" class="tag-field" [(ngModel)]="tagDraft"
+                     [ngModelOptions]="{standalone:true}" placeholder="e.g. Pipe Fitting"
+                     (keydown)="onTagKey($event)" (blur)="commitTag()" />
+            </div>
           </div>
           <div class="mb-1">
             <label class="nb-check">
@@ -150,6 +157,11 @@ import { ToastService } from '../../core/services/toast.service';
     .fs-title  { font-family:var(--font-display);font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--nb-text-muted);margin-bottom:.75rem; }
     .err-box   { background:#FEE2E2;color:#991b1b;border-radius:var(--radius-md);padding:10px 14px;font-size:.875rem;margin-bottom:12px; }
     textarea.nb-input { resize:vertical; }
+    .tag-input { display:flex; flex-wrap:wrap; gap:6px; align-items:center; border:1.5px solid var(--nb-border); border-radius:var(--radius-md); padding:8px 10px; background:var(--nb-surface); cursor:text; min-height:46px; }
+    .tag-input:focus-within { border-color:var(--nb-primary-light); box-shadow:0 0 0 3px rgba(37,99,168,.12); }
+    .tag-chip { display:inline-flex; align-items:center; gap:5px; background:#EFF6FF; color:var(--nb-primary); border-radius:6px; padding:4px 8px; font-size:.8rem; font-weight:600; font-family:var(--font-display); }
+    .tag-chip button { background:none; border:none; color:var(--nb-primary); cursor:pointer; padding:0; display:flex; line-height:1; }
+    .tag-field { border:none; outline:none; background:transparent; font-family:var(--font-body); font-size:.875rem; flex:1; min-width:120px; padding:4px 0; }
     .nb-check  { display:flex;align-items:center;gap:8px;font-size:.875rem;cursor:pointer; }
     .nb-check input { width:16px;height:16px; }
     .days-wrap { display:flex;flex-wrap:wrap;gap:8px; }
@@ -173,7 +185,7 @@ export class ProviderEditComponent implements OnInit {
   saving  = signal(false);
   error   = signal('');
 
-  skillsText = '';
+  tagDraft   = '';
   allDays    = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
   categories = [
     { value: 'home_services', label: 'Home Services' },
@@ -214,7 +226,6 @@ export class ProviderEditComponent implements OnInit {
           startTime: p.availability?.startTime ?? '09:00',
           endTime:   p.availability?.endTime ?? '18:00',
         };
-        this.skillsText = this.form.skills.join(', ');
         this.isNew.set(false);
         this.loading.set(false);
       },
@@ -248,12 +259,27 @@ export class ProviderEditComponent implements OnInit {
     this.form.images = this.form.images.filter((_, idx) => idx !== i);
   }
 
+  // ── Service-tag chip input (11.38) ───────────────────────────
+  onTagKey(e: KeyboardEvent) {
+    if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); this.commitTag(); }
+    else if (e.key === 'Backspace' && !this.tagDraft && this.form.skills.length) {
+      this.form.skills = this.form.skills.slice(0, -1);
+    }
+  }
+  commitTag() {
+    const t = this.tagDraft.trim().replace(/,$/, '').trim();
+    if (t && !this.form.skills.some(s => s.toLowerCase() === t.toLowerCase())) {
+      this.form.skills = [...this.form.skills, t];
+    }
+    this.tagDraft = '';
+  }
+  removeTag(i: number) { this.form.skills = this.form.skills.filter((_, idx) => idx !== i); }
+
   save() {
+    this.commitTag();   // fold any half-typed tag into the list
     this.error.set('');
     if (!this.form.businessName.trim()) { this.error.set('Business name is required.'); return; }
     if (!this.form.category)            { this.error.set('Please choose a category.'); return; }
-
-    this.form.skills = this.skillsText.split(',').map(s => s.trim()).filter(Boolean);
 
     this.saving.set(true);
     const done = (msg: string) => { this.saving.set(false); this.toast.success(msg); };

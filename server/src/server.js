@@ -7,6 +7,7 @@ const { Server }  = require('socket.io');
 const app         = require('./app');
 const connectDB   = require('./config/db');
 const socketHandler = require('./socket/handler');
+const bootstrapAdmin = require('./config/bootstrapAdmin');
 
 const PORT = process.env.PORT || 5000;
 
@@ -29,6 +30,7 @@ app.locals.io = io;
 // Start server after DB connects
 const start = async () => {
   await connectDB();
+  await bootstrapAdmin();           // create env-defined admin if missing
   httpServer.listen(PORT, () => {
     console.log('─────────────────────────────────────────');
     console.log(`🚀  NearBy API      → http://localhost:${PORT}`);

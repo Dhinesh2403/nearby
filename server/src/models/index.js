@@ -9,9 +9,11 @@ const UserSchema = new mongoose.Schema({
   email:         { type: String, required: true, unique: true, lowercase: true, trim: true },
   phone:         { type: String, required: true, unique: true },
   passwordHash:  { type: String, required: true, select: false },
+  hasPassword:   { type: Boolean, default: false },
   role:          { type: String, enum: ['customer','provider','admin'], default: 'customer' },
   avatar:        { type: String, default: '' },
   isActive:      { type: Boolean, default: true },
+  isDemo:        { type: Boolean, default: false, index: true },  // internal test account — hidden from real users
   refreshToken:  { type: String, select: false },
   location: {
     type:        { type: String, enum: ['Point'], default: 'Point' },
@@ -45,7 +47,20 @@ const ProviderSchema = new mongoose.Schema({
   businessName: { type: String, required: true, trim: true },
   tagline:      { type: String, default: '', maxlength: 120 },
   bio:          { type: String, default: '', maxlength: 500 },
-  category:     { type: String, required: true, enum: ['home_services','education','food','wellness','events'] },
+  category: {
+    type: String,
+    required: true,
+    enum: [
+      'home_services', 'cleaning', 'repair_services',
+      'education', 'music_arts',
+      'food', 'bakery',
+      'beauty_salon', 'wellness', 'fitness', 'health_medical',
+      'events', 'photography', 'wedding',
+      'automotive', 'clothing_fashion', 'pet_care',
+      'transport', 'interior_design', 'it_tech', 'legal_finance',
+      'childcare', 'sports', 'printing', 'security', 'agriculture',
+    ],
+  },
   subCategory:  { type: String, default: '' },
   skills:       [{ type: String }],
   images:       [{ type: String }],
@@ -60,11 +75,11 @@ const ProviderSchema = new mongoose.Schema({
   serviceRadius: { type: Number, default: 10 },
   ratingAvg:     { type: Number, default: 0 },
   ratingCount:   { type: Number, default: 0 },
-  totalBookings: { type: Number, default: 0 },
   price:         { type: Number, default: 0 },   // starting / min price
   priceMax:      { type: Number, default: 0 },   // upper end of range (0 = single price)
   planType:      { type: String, enum: ['free','basic','pro'], default: 'free' },
   status:        { type: String, enum: ['pending','active','suspended'], default: 'pending' },
+  banReason:     { type: String, default: '' },   // set when admin suspends (5.8/5.9)
 }, { timestamps: true });
 
 ProviderSchema.index({ category: 1, status: 1 });
@@ -92,37 +107,8 @@ const ServiceSchema = new mongoose.Schema({
 
 const Service = mongoose.model('Service', ServiceSchema);
 
-// ─── BOOKING ──────────────────────────────────────────────────
-const BookingSchema = new mongoose.Schema({
-  customerId:    { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  providerId:    { type: mongoose.Schema.Types.ObjectId, ref: 'Provider', required: true },
-  serviceId:     { type: mongoose.Schema.Types.ObjectId, ref: 'Service' },
-  bookingType:   { type: String, enum: ['in_person','remote'], default: 'in_person' },
-  scheduledDate: { type: Date, required: true },
-  scheduledTime: { type: String, required: true },
-  address:       { type: String, default: '' },
-  meetingLink:   { type: String, default: '' },
-  status: {
-    type: String,
-    enum: ['pending','accepted','rejected','in_progress','completed','cancelled'],
-    default: 'pending',
-  },
-  totalAmount:   { type: Number, default: 0 },
-  paymentStatus: { type: String, enum: ['unpaid','paid','refunded'], default: 'unpaid' },
-  notes:         { type: String, default: '' },
-  cancelReason:  { type: String, default: '' },
-  rejectReason:  { type: String, default: '' },
-  completedAt:   { type: Date },
-}, { timestamps: true });
-
-BookingSchema.index({ customerId: 1, status: 1 });
-BookingSchema.index({ providerId: 1, status: 1 });
-
-const Booking = mongoose.model('Booking', BookingSchema);
-
 // ─── REVIEW ───────────────────────────────────────────────────
 const ReviewSchema = new mongoose.Schema({
-  bookingId:     { type: mongoose.Schema.Types.ObjectId, ref: 'Booking', required: true, unique: true },
   customerId:    { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   providerId:    { type: mongoose.Schema.Types.ObjectId, ref: 'Provider', required: true },
   rating:        { type: Number, required: true, min: 1, max: 5 },
@@ -141,7 +127,6 @@ const Review = mongoose.model('Review', ReviewSchema);
 const ComplaintSchema = new mongoose.Schema({
   raisedBy:    { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
   against:     { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-  bookingId:   { type: mongoose.Schema.Types.ObjectId, ref: 'Booking', default: null },
   type:        { type: String, enum: ['no_show','quality','fraud','behaviour','other'], required: true },
   description: { type: String, required: true, maxlength: 1000 },
   evidence:    [{ type: String }],
@@ -199,4 +184,99 @@ MessageSchema.index({ conversationId: 1, createdAt: 1 });
 
 const Message = mongoose.model('Message', MessageSchema);
 
-module.exports = { User, Provider, Service, Booking, Review, Complaint, Notification, Conversation, Message };
+// ─── CONTACT LOG (call / WhatsApp handoff tracking) ───────────
+// Records that a customer revealed a provider's contact details and
+// via which channel. Powers provider stats + "Who Visited" later.
+const ContactLogSchema = new mongoose.Schema({
+  customerId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  providerId: { type: mongoose.Schema.Types.ObjectId, ref: 'Provider', required: true },
+  channel:    { type: String, enum: ['call', 'whatsapp'], required: true },
+}, { timestamps: true });
+
+ContactLogSchema.index({ providerId: 1, createdAt: -1 });
+ContactLogSchema.index({ customerId: 1, providerId: 1 });
+
+const ContactLog = mongoose.model('ContactLog', ContactLogSchema);
+
+// ─── PROFILE VIEW (who visited a provider profile) ────────────
+// guestId is set for not-logged-in visitors (a client-generated id),
+// customerId for logged-in customers. Powers view counts + "Who Visited".
+const ProfileViewSchema = new mongoose.Schema({
+  providerId: { type: mongoose.Schema.Types.ObjectId, ref: 'Provider', required: true },
+  customerId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+  guestId:    { type: String, default: '' },
+}, { timestamps: true });
+
+ProfileViewSchema.index({ providerId: 1, createdAt: -1 });
+
+const ProfileView = mongoose.model('ProfileView', ProfileViewSchema);
+
+// ─── AD REWARD (rewarded-ad completions, server-verified) ─────
+// Tracks each completed rewarded ad. Once a provider accumulates the
+// configured number, the latest visitor batch is unlocked.
+const AdRewardSchema = new mongoose.Schema({
+  providerId:          { type: mongoose.Schema.Types.ObjectId, ref: 'Provider', required: true },
+  adType:              { type: String, enum: ['rewarded'], default: 'rewarded' },
+  completedAt:         { type: Date, default: Date.now },
+  unlockedVisitorBatch:{ type: Boolean, default: false },
+}, { timestamps: true });
+
+AdRewardSchema.index({ providerId: 1, createdAt: -1 });
+
+const AdReward = mongoose.model('AdReward', AdRewardSchema);
+
+// ─── APP SETTINGS (singleton — global platform toggles) ───────
+// One document holds all admin-controlled switches. Use
+// AppSettings.getSingleton() to read-or-create it.
+const AppSettingsSchema = new mongoose.Schema({
+  key:                 { type: String, default: 'global', unique: true },  // always 'global'
+  otpEnabled:          { type: Boolean, default: true },   // customer + provider OTP
+  otpCustomerEnabled:  { type: Boolean, default: true },
+  otpProviderEnabled:  { type: Boolean, default: true },
+  adsEnabled:          { type: Boolean, default: true },   // banner + rewarded master switch
+  rewardedAdsEnabled:  { type: Boolean, default: true },
+  whoVisitedEnabled:   { type: Boolean, default: true },
+  adsRequiredCount:    { type: Number,  default: 2 },      // ads to unlock visitor list
+  registrationsEnabled:{ type: Boolean, default: true },   // freeze new provider signups
+  complaintsEnabled:   { type: Boolean, default: true },
+  featuredCategories:  { type: [String], default: [] },    // homepage promoted categories
+  bannerAdUnitId:      { type: String, default: '' },      // AdMob (Phase 6)
+  rewardedAdUnitId:    { type: String, default: '' },
+  announcement: {
+    active: { type: Boolean, default: false },
+    text:   { type: String, default: '' },
+  },
+}, { timestamps: true });
+
+AppSettingsSchema.statics.getSingleton = async function () {
+  let s = await this.findOne({ key: 'global' });
+  if (!s) s = await this.create({ key: 'global' });
+  return s;
+};
+
+const AppSettings = mongoose.model('AppSettings', AppSettingsSchema);
+
+// ─── ADMIN LOG (audit trail — who changed what, when) ─────────
+const AdminLogSchema = new mongoose.Schema({
+  adminId:   { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  adminName: { type: String, default: '' },
+  action:    { type: String, required: true },   // e.g. 'ban_provider', 'update_settings'
+  detail:    { type: String, default: '' },
+}, { timestamps: true });
+
+AdminLogSchema.index({ createdAt: -1 });
+
+const AdminLog = mongoose.model('AdminLog', AdminLogSchema);
+
+// ─── LEAD (quick enquiry from results-page sidebar form) ──────
+const LeadSchema = new mongoose.Schema({
+  name:     { type: String, required: true },
+  mobile:   { type: String, required: true },
+  service:  { type: String, default: '' },
+  location: { type: String, default: '' },
+  status:   { type: String, enum: ['new', 'contacted', 'closed'], default: 'new' },
+}, { timestamps: true });
+
+const Lead = mongoose.model('Lead', LeadSchema);
+
+module.exports = { User, Provider, Service, Review, Complaint, Notification, Conversation, Message, ContactLog, ProfileView, AdReward, AppSettings, AdminLog, Lead };

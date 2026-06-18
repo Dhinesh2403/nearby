@@ -1,0 +1,162 @@
+# .github/workflows/cd-deploy.yml
+# main  → staging  deployment  (Vercel preview + Railway staging)
+# prod  → production deployment (Vercel prod    + Railway production)
+
+name: Deploy
+
+on:
+  push:
+    branches: [main, prod]
+
+concurrency:
+  group: deploy-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+
+  # ── PRE-CHECK (both branches) ─────────────────────────────────
+  pre-check:
+    name: Pre-deploy build check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - name: Build frontend
+        working-directory: ./dev
+        run: |
+          npm ci
+          if [ "${{ github.ref_name }}" = "prod" ]; then
+            npm run build -- --configuration production
+          else
+            npm run build -- --configuration staging
+          fi
+      - name: Audit backend
+        working-directory: ./server
+        run: npm ci && npm audit --audit-level=critical
+
+  # ── STAGING: FRONTEND → VERCEL PREVIEW ───────────────────────
+  # Triggered by push to main
+  # Secrets needed:
+  #   VERCEL_TOKEN, VERCEL_ORG_ID, VERCEL_PROJECT_ID
+  deploy-frontend-staging:
+    name: Frontend → Vercel (Staging)
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    needs: pre-check
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - name: Install Vercel CLI
+        run: npm install -g vercel@latest
+      - name: Pull Vercel env (preview)
+        working-directory: ./dev
+        run: vercel pull --yes --environment=preview --token=${{ secrets.VERCEL_TOKEN }}
+      - name: Build
+        working-directory: ./dev
+        run: vercel build --token=${{ secrets.VERCEL_TOKEN }}
+      - name: Deploy (preview)
+        working-directory: ./dev
+        run: vercel deploy --prebuilt --token=${{ secrets.VERCEL_TOKEN }}
+
+  # ── STAGING: BACKEND → RAILWAY STAGING ENV ───────────────────
+  # Triggered by push to main
+  # Secrets needed:
+  #   RAILWAY_TOKEN, RAILWAY_SERVICE_ID_STAGING, RAILWAY_STAGING_URL
+  deploy-backend-staging:
+    name: Backend → Railway (Staging)
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    needs: pre-check
+    environment: staging
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+      - name: Deploy to staging environment
+        working-directory: ./server
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: railway up --service ${{ secrets.RAILWAY_SERVICE_ID_STAGING }} --environment staging
+      - name: Health check (staging)
+        run: |
+          sleep 20
+          curl --fail ${{ secrets.RAILWAY_STAGING_URL }}/health
+
+  # ── STAGING SMOKE TEST ────────────────────────────────────────
+  smoke-staging:
+    name: Smoke test (Staging)
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    needs: [deploy-frontend-staging, deploy-backend-staging]
+    steps:
+      - name: Check staging frontend
+        run: curl --fail ${{ secrets.VERCEL_STAGING_URL }}
+      - name: Check staging backend
+        run: curl --fail ${{ secrets.RAILWAY_STAGING_URL }}/health | grep '"status":"ok"'
+      - run: echo "Staging is live on main"
+
+  # ── PRODUCTION: FRONTEND → VERCEL PROD ───────────────────────
+  # Triggered by push to prod
+  # Secrets needed:
+  #   VERCEL_TOKEN, VERCEL_ORG_ID, VERCEL_PROJECT_ID
+  deploy-frontend-production:
+    name: Frontend → Vercel (Production)
+    if: github.ref == 'refs/heads/prod'
+    runs-on: ubuntu-latest
+    needs: pre-check
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - name: Install Vercel CLI
+        run: npm install -g vercel@latest
+      - name: Pull Vercel env (production)
+        working-directory: ./dev
+        run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
+      - name: Build
+        working-directory: ./dev
+        run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
+      - name: Deploy (production)
+        working-directory: ./dev
+        run: vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }}
+
+  # ── PRODUCTION: BACKEND → RAILWAY PRODUCTION ENV ─────────────
+  # Triggered by push to prod
+  # Secrets needed:
+  #   RAILWAY_TOKEN, RAILWAY_SERVICE_ID, RAILWAY_PUBLIC_URL
+  deploy-backend-production:
+    name: Backend → Railway (Production)
+    if: github.ref == 'refs/heads/prod'
+    runs-on: ubuntu-latest
+    needs: pre-check
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Railway CLI
+        run: npm install -g @railway/cli
+      - name: Deploy to production environment
+        working-directory: ./server
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+        run: railway up --service ${{ secrets.RAILWAY_SERVICE_ID }} --environment production
+      - name: Health check (production)
+        run: |
+          sleep 20
+          curl --fail ${{ secrets.RAILWAY_PUBLIC_URL }}/health
+
+  # ── PRODUCTION SMOKE TEST ─────────────────────────────────────
+  smoke-production:
+    name: Smoke test (Production)
+    if: github.ref == 'refs/heads/prod'
+    runs-on: ubuntu-latest
+    needs: [deploy-frontend-production, deploy-backend-production]
+    steps:
+      - name: Check production frontend
+        run: curl --fail ${{ secrets.VERCEL_URL }}
+      - name: Check production backend
+        run: curl --fail ${{ secrets.RAILWAY_PUBLIC_URL }}/health | grep '"status":"ok"'
+      - run: echo "NearBy production is live"

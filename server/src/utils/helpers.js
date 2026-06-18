@@ -14,49 +14,6 @@ const paginated = (res, data, total, page, limit) =>
 const fail = (res, msg = 'Error', status = 400) =>
   res.status(status).json({ success: false, message: msg });
 
-const createError = (msg, code = 400) => {
-  const e = new Error(msg);
-  e.statusCode = code;
-  return e;
-};
-
-
-// ─────────────────────────────────────────────────────────────
-// src/utils/email.js
-// Sends transactional emails via SMTP.
-// If SMTP creds are not set, logs to console instead — so local
-// development works without any email setup.
-// ─────────────────────────────────────────────────────────────
-const nodemailer = require('nodemailer');
-
-const getTransporter = () => {
-  if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
-    // Return a fake transporter that just logs
-    return {
-      sendMail: async (opts) => {
-        console.log(`\n📧  [DEV EMAIL — would have sent to ${opts.to}]`);
-        console.log(`    Subject: ${opts.subject}`);
-        console.log(`    Body snippet: ${opts.text || '(html)'}`.slice(0, 120));
-        return { messageId: 'dev-mode' };
-      },
-    };
-  }
-  return nodemailer.createTransport({
-    host: process.env.SMTP_HOST,
-    port: +process.env.SMTP_PORT,
-    secure: false,
-    auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
-  });
-};
-
-const sendEmail = async ({ to, subject, html, text }) => {
-  const t = getTransporter();
-  return t.sendMail({
-    from: `"NearBy" <${process.env.SMTP_USER || 'no-reply@nearby.local'}>`,
-    to, subject, html, text,
-  });
-};
-
 
 // ─────────────────────────────────────────────────────────────
 // src/utils/tokens.js
@@ -91,4 +48,4 @@ const pushNotify = async (io, userId, { type, title, body, link = '' }) => {
   } catch (_) { /* non-fatal */ }
 };
 
-module.exports = { ok, paginated, fail, createError, sendEmail, generateTokens, pushNotify };
+module.exports = { ok, paginated, fail, generateTokens, pushNotify };
