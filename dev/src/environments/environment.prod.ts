@@ -1,5 +1,3 @@
-// src/environments/environment.prod.ts
-// Values injected at build time via Vercel environment variables
 export const environment = {
   production: true,
   apiUrl:    'https://nearbypro-mhjd.onrender.com/api',
