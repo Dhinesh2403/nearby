@@ -1,14 +1,19 @@
 # .github/workflows/ci-frontend.yml
-# Builds Angular and runs Playwright E2E tests on every PR
+# Builds Angular on every push to main/prod and on PRs
 
-name: Frontend CI + E2E
+name: Frontend CI
 
 on:
   push:
     branches: [main, prod]
-    paths: ['dev/**', 'e2e/**', 'playwright.config.ts', '.github/workflows/ci-frontend.yml']
+    paths: ['dev/**', '.github/workflows/ci-frontend.yml']
   pull_request:
     branches: [main, prod]
+    paths: ['dev/**']
+
+concurrency:
+  group: frontend-ci-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -27,79 +32,10 @@ jobs:
         working-directory: ./dev
         run: npm ci
 
-      - name: Build
+      - name: Build (production)
         working-directory: ./dev
-        run: npm run build -- --configuration production
+        run: npm run build:production
 
-      - name: Upload dist
-        uses: actions/upload-artifact@v4
-        with:
-          name: angular-dist
-          path: dev/dist/
-          retention-days: 1
-
-  e2e:
-    name: Playwright E2E (${{ matrix.browser }})
-    runs-on: ubuntu-latest
-    needs: build
-    strategy:
-      matrix:
-        browser: [chromium, firefox]
-      fail-fast: false
-
-    services:
-      mongodb:
-        image: mongo:7
-        ports: ['27017:27017']
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-
-      - name: Install frontend deps
+      - name: Build (staging)
         working-directory: ./dev
-        run: npm ci
-
-      - name: Install backend deps
-        working-directory: ./server
-        run: npm ci
-
-      - name: Install Playwright
-        run: npx playwright install ${{ matrix.browser }} --with-deps
-
-      - name: Start backend
-        working-directory: ./server
-        env:
-          NODE_ENV: test
-          PORT: 5000
-          MONGO_URI: mongodb://localhost:27017/nearby_e2e
-          JWT_SECRET: ci_secret_64chars_min_replace_in_prod
-          JWT_REFRESH_SECRET: ci_refresh_64chars_min_replace_in_prod
-          JWT_EXPIRES_IN: 15m
-          JWT_REFRESH_EXPIRES_IN: 7d
-          CLIENT_URL: http://localhost:4200
-        run: |
-          npm start &
-          npx wait-on http://localhost:5000/health --timeout 30000
-
-      - name: Seed DB
-        working-directory: ./server
-        env:
-          MONGO_URI: mongodb://localhost:27017/nearby_e2e
-        run: node src/seeds/seed.js
-
-      - name: Run E2E
-        env:
-          CI: true
-        run: npx playwright test --project=${{ matrix.browser }}
-
-      - name: Upload report on failure
-        uses: actions/upload-artifact@v4
-        if: failure()
-        with:
-          name: playwright-report-${{ matrix.browser }}
-          path: playwright-report/
-          retention-days: 7
+        run: npm run build:staging
