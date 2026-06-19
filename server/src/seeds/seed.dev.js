@@ -89,7 +89,6 @@ const run = async () => {
   await Provider.deleteMany({ userId: { $in: existingIds } });
   await Service.deleteMany({});
   await Review.deleteMany({});
-  console.log('🗑️   Cleared old seed data');
 
   const created = {};
   for (const u of users) {
