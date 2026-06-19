@@ -32,8 +32,9 @@ import { ContactLoginModalComponent } from '../../shared/components/contact-logi
       <div class="chips-wrap" (click)="sortOpen() && sortOpen.set(false)">
         <div class="container chips-row">
 
-          <!-- Sort chip — custom dropdown (replaces broken native <select>) -->
-          <div class="chip-wrap" style="position:relative">
+          <!-- Sort chip is kept OUTSIDE the scrollable chips-scroll div so its
+               dropdown isn't clipped by the overflow-x:auto scroll container -->
+          <div class="chip-wrap">
             <button class="chip chip-sort" [class.on]="sort !== 'rating'"
                     (click)="$event.stopPropagation(); sortOpen.set(!sortOpen())">
               <i class="bi bi-sliders"></i>
@@ -52,21 +53,24 @@ import { ContactLoginModalComponent } from '../../shared/components/contact-logi
             }
           </div>
 
-          <button class="chip" [class.on]="minRating()===4.5" (click)="toggleRating(4.5)">
-            <i class="bi bi-star-fill"></i>Top Rated
-          </button>
-          <button class="chip" [class.on]="verifiedOnly()" (click)="toggleVerified()">
-            <i class="bi bi-patch-check-fill"></i>Verified
-          </button>
-          <button class="chip" [class.on]="onlineOnly()" (click)="toggleOnline()">
-            <i class="bi bi-lightning-charge-fill"></i>Quick Response
-          </button>
-          <button class="chip" [class.on]="minRating()===4" (click)="toggleRating(4)">
-            <i class="bi bi-star"></i>4★ &amp; above
-          </button>
-          <button class="chip chip-clear" (click)="clearAll()">
-            <i class="bi bi-x-circle"></i>Clear All
-          </button>
+          <!-- Separate scrollable container for filter chips -->
+          <div class="chips-scroll">
+            <button class="chip" [class.on]="minRating()===4.5" (click)="toggleRating(4.5)">
+              <i class="bi bi-star-fill"></i>Top Rated
+            </button>
+            <button class="chip" [class.on]="verifiedOnly()" (click)="toggleVerified()">
+              <i class="bi bi-patch-check-fill"></i>Verified
+            </button>
+            <button class="chip" [class.on]="onlineOnly()" (click)="toggleOnline()">
+              <i class="bi bi-lightning-charge-fill"></i>Quick Response
+            </button>
+            <button class="chip" [class.on]="minRating()===4" (click)="toggleRating(4)">
+              <i class="bi bi-star"></i>4★ &amp; above
+            </button>
+            <button class="chip chip-clear" (click)="clearAll()">
+              <i class="bi bi-x-circle"></i>Clear All
+            </button>
+          </div>
         </div>
       </div>
 
@@ -181,8 +185,12 @@ import { ContactLoginModalComponent } from '../../shared/components/contact-logi
   `,
   styles: [`
     .srch-wrap { background:linear-gradient(135deg,#0F2744,#1A3C5E); padding:18px 0; position:sticky; top:var(--nb-navbar-h,56px); z-index:1002; overflow:visible; }
-    .chips-wrap { background:#fff; border-bottom:1px solid var(--nb-border); position:sticky; top:calc(var(--nb-navbar-h,56px) + 86px); z-index:1001; }
-    .chips-row { display:flex; gap:8px; padding:10px 12px; overflow-x:auto; }
+    .chips-wrap { background:#fff; border-bottom:1px solid var(--nb-border); position:sticky; top:calc(var(--nb-navbar-h,56px) + 86px); z-index:1001; overflow:visible; }
+    /* On mobile the search bar wraps to 3 rows (~164px tall), so push chips down accordingly */
+    @media (max-width:560px) { .chips-wrap { top:calc(var(--nb-navbar-h,56px) + 164px); } }
+    .chips-row { display:flex; align-items:center; gap:8px; padding:10px 12px; overflow:visible; }
+    /* Scrollable container for filter chips — separate from sort so its dropdown isn't clipped */
+    .chips-scroll { display:flex; gap:8px; overflow-x:auto; flex:1; -webkit-overflow-scrolling:touch; padding-bottom:2px; }
     .chip { display:inline-flex; align-items:center; gap:6px; background:#fff; border:1.5px solid var(--nb-border); border-radius:20px; padding:6px 14px; font-family:var(--font-display); font-size:.78rem; font-weight:600; color:var(--nb-text-muted); cursor:pointer; white-space:nowrap; transition:all .15s; }
     .chip:hover { border-color:var(--nb-primary); color:var(--nb-primary); }
     .chip.on { background:var(--nb-primary); border-color:var(--nb-primary); color:#fff; }
@@ -234,6 +242,8 @@ import { ContactLoginModalComponent } from '../../shared/components/contact-logi
     .empty-state { text-align:center; padding:3rem 1rem; color:var(--nb-text-muted); background:#fff; border-radius:var(--radius-lg); border:1px solid var(--nb-border); }
     .empty-state i { font-size:2.5rem; display:block; margin-bottom:.75rem; }
     .lead-card { background:#fff; border:1px solid var(--nb-border); border-radius:var(--radius-lg); padding:1.25rem; position:sticky; top:calc(var(--nb-navbar-h,56px) + 156px); }
+    /* Lead card only sticks on lg+ where it's a sidebar column; below that it's full-width */
+    @media (max-width:991px) { .lead-card { position:static; } }
     .lead-title { font-family:var(--font-display); font-weight:800; margin:0 0 4px; }
     .lead-sub { font-size:.8rem; color:var(--nb-text-muted); margin-bottom:1rem; }
     .lead-phone { display:flex; align-items:stretch; border:1.5px solid var(--nb-border); border-radius:var(--radius-md); overflow:hidden; background:#fff; }

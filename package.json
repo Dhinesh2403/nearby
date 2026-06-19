@@ -4,15 +4,16 @@
   "description": "NearBy — Local Services Marketplace",
   "private": true,
   "scripts": {
-    "install:all":   "npm install && cd server && npm install && cd ../dev && npm install",
-    "dev":           "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
-    "dev:backend":   "cd server && npm run dev",
-    "dev:frontend":  "cd dev && npm start",
-    "seed":          "cd server && node src/seeds/seed.js",
-    "build:frontend":"cd dev && npm run build -- --configuration production",
-    "test:e2e":      "npx playwright test"
+    "install:all": "npm install && cd server && npm install && cd ../dev && npm install",
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:backend": "cd server && npm run dev",
+    "dev:frontend": "cd dev && npm start",
+    "seed": "cd server && node src/seeds/seed.js",
+    "build:frontend": "cd dev && npm run build -- --configuration production",
+    "test:e2e": "npx playwright test"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.0",
     "concurrently": "^8.2.2"
   }
 }

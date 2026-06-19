@@ -163,6 +163,7 @@ a:hover { color: var(--nb-primary); }
 .nb-toast { background:var(--nb-surface); border-radius:var(--radius-md); border-left:4px solid var(--nb-success); padding:12px 20px; box-shadow:var(--shadow-lg); font-size:.875rem; max-width:320px; animation:slideIn .3s ease; }
 .nb-toast.error { border-left-color: var(--nb-danger); }
 @keyframes slideIn { from { transform:translateX(120%); opacity:0; } to { transform:translateX(0); opacity:1; } }
+@media (max-width:480px) { .nb-toast-wrap { right:12px; left:12px; bottom:12px; } .nb-toast { max-width:100%; } }
 
 /* Fade animations */
 @keyframes fadeUp { from { opacity:0; transform:translateY(20px); } to { opacity:1; transform:translateY(0); } }

@@ -5,6 +5,7 @@ import { FormsModule }  from '@angular/forms';
 import { RouterLink, Router } from '@angular/router';
 import { ApiService, ApiResponse, Provider } from '../../core/services/api.service';
 import { ToastService } from '../../core/services/toast.service';
+import { UploadService } from '../../core/services/upload.service';
 
 @Component({
   selector: 'app-provider-edit',
@@ -97,11 +98,16 @@ import { ToastService } from '../../core/services/toast.service';
           <hr class="divider">
 
           <h6 class="fs-title">Work Photos <span class="text-muted-nb" style="font-weight:400;text-transform:none">(showcase your work)</span></h6>
-          <div class="upload-zone mb-2" (click)="fi.click()">
+          <div class="upload-zone mb-2" (click)="!uploading() && fi.click()">
             <input #fi type="file" hidden accept="image/*" multiple (change)="onPhotos($event)" />
-            <i class="bi bi-images"></i>
-            <p>Click to upload photos of your work</p>
-            <span>JPG or PNG · Max 5 MB each</span>
+            @if (uploading()) {
+              <div class="nb-spinner" style="width:28px;height:28px;margin:0 auto .4rem"></div>
+              <p>Uploading to Cloudinary…</p>
+            } @else {
+              <i class="bi bi-images"></i>
+              <p>Click to upload photos of your work</p>
+              <span>JPG or PNG · Max 5 MB each</span>
+            }
           </div>
           @if (form.images.length > 0) {
             <div class="photo-grid mb-3">
@@ -180,10 +186,11 @@ import { ToastService } from '../../core/services/toast.service';
 })
 export class ProviderEditComponent implements OnInit {
   providerId = '';
-  isNew   = signal(false);
-  loading = signal(true);
-  saving  = signal(false);
-  error   = signal('');
+  isNew     = signal(false);
+  loading   = signal(true);
+  saving    = signal(false);
+  error     = signal('');
+  uploading = signal(false);
 
   tagDraft   = '';
   allDays    = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
@@ -203,7 +210,7 @@ export class ProviderEditComponent implements OnInit {
     availability: { days: ['Mon','Tue','Wed','Thu','Fri'] as string[], startTime: '09:00', endTime: '18:00' },
   };
 
-  constructor(private api: ApiService, private toast: ToastService, private router: Router) {}
+  constructor(private api: ApiService, private toast: ToastService, private router: Router, private uploadSvc: UploadService) {}
 
   ngOnInit() {
     this.api.get<ApiResponse<Provider>>('/providers/my').subscribe({
@@ -245,14 +252,23 @@ export class ProviderEditComponent implements OnInit {
   onPhotos(e: Event) {
     const el = e.target as HTMLInputElement;
     if (!el.files) return;
-    Array.from(el.files).forEach(f => {
-      if (f.size > 5 * 1024 * 1024) { this.toast.error(`${f.name} is over 5 MB.`); return; }
-      if (!f.type.startsWith('image/')) return;
-      const reader = new FileReader();
-      reader.onload = () => this.form.images = [...this.form.images, reader.result as string];
-      reader.readAsDataURL(f);
+    const files = Array.from(el.files).filter(f => {
+      if (f.size > 5 * 1024 * 1024) { this.toast.error(`${f.name} is over 5 MB.`); return false; }
+      return f.type.startsWith('image/');
     });
     el.value = '';
+    if (!files.length) return;
+    this.uploading.set(true);
+    this.uploadSvc.uploadImages(files, 'Nearby/providers').subscribe({
+      next: results => {
+        this.form.images = [...this.form.images, ...results.map(r => r.url)];
+        this.uploading.set(false);
+      },
+      error: () => {
+        this.toast.error('Image upload failed. Please try again.');
+        this.uploading.set(false);
+      },
+    });
   }
 
   removePhoto(i: number) {

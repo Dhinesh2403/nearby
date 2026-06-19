@@ -6,6 +6,7 @@ import { RouterLink, ActivatedRoute } from '@angular/router';
 import { ApiService, ApiResponse } from '../../core/services/api.service';
 import { AuthService }   from '../../core/auth/auth.service';
 import { ToastService }  from '../../core/services/toast.service';
+import { UploadService } from '../../core/services/upload.service';
 
 @Component({
   selector: 'app-complaint-form',
@@ -63,12 +64,17 @@ import { ToastService }  from '../../core/services/toast.service';
 
           <div class="mb-4">
             <label class="nb-label">Upload Evidence (optional)</label>
-            <div class="upload-zone" (click)="fi.click()">
-              <input #fi type="file" hidden accept="image/*,.pdf" multiple
+            <div class="upload-zone" (click)="!uploading() && fi.click()">
+              <input #fi type="file" hidden accept="image/*" multiple
                      (change)="onFile($event)" data-testid="evidence-upload" />
-              <i class="bi bi-cloud-upload"></i>
-              <p>Click to upload photos or PDF</p>
-              <span>JPG, PNG or PDF · Max 5 MB</span>
+              @if (uploading()) {
+                <div class="nb-spinner" style="width:28px;height:28px;margin:0 auto .5rem"></div>
+                <p>Uploading to Cloudinary…</p>
+              } @else {
+                <i class="bi bi-cloud-upload"></i>
+                <p>Click to upload photos</p>
+                <span>JPG or PNG · Max 5 MB</span>
+              }
             </div>
             @if (evidence().length>0) {
               <div class="ev-grid">
@@ -132,8 +138,9 @@ import { ToastService }  from '../../core/services/toast.service';
 })
 export class ComplaintFormComponent implements OnInit {
   form = { type:'', description:'' };
-  evidence  = signal<string[]>([]);     // base64 data URLs
+  evidence  = signal<string[]>([]);
   loading   = signal(false);
+  uploading = signal(false);
   error     = signal('');
   submitted = signal(false);
   refId     = Math.floor(Math.random()*90000+10000);
@@ -153,6 +160,7 @@ export class ComplaintFormComponent implements OnInit {
     private auth: AuthService,
     private toast: ToastService,
     private route: ActivatedRoute,
+    private uploadSvc: UploadService,
   ) {}
 
   ngOnInit() {
@@ -167,14 +175,24 @@ export class ComplaintFormComponent implements OnInit {
   onFile(e: Event) {
     const el = e.target as HTMLInputElement;
     if (!el.files) return;
-    Array.from(el.files).forEach(f => {
-      if (f.size > 5 * 1024 * 1024) { this.toast.error(`${f.name} is over 5 MB.`); return; }
-      if (!f.type.startsWith('image/')) { this.toast.error('Only images can be previewed.'); return; }
-      const reader = new FileReader();
-      reader.onload = () => this.evidence.update(list => [...list, reader.result as string]);
-      reader.readAsDataURL(f);
+    const files = Array.from(el.files).filter(f => {
+      if (f.size > 5 * 1024 * 1024) { this.toast.error(`${f.name} is over 5 MB.`); return false; }
+      if (!f.type.startsWith('image/')) { this.toast.error('Only image files are supported.'); return false; }
+      return true;
     });
     el.value = '';
+    if (!files.length) return;
+    this.uploading.set(true);
+    this.uploadSvc.uploadImages(files, 'Nearby/complaints').subscribe({
+      next: results => {
+        this.evidence.update(list => [...list, ...results.map(r => r.url)]);
+        this.uploading.set(false);
+      },
+      error: () => {
+        this.toast.error('Evidence upload failed. Please try again.');
+        this.uploading.set(false);
+      },
+    });
   }
 
   removeEvidence(i: number) {

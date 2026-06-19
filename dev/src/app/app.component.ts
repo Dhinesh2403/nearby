@@ -21,7 +21,7 @@ import { SettingsService } from './core/services/settings.service';
         </a>
 
         <button class="navbar-toggler border-0" type="button"
-                (click)="navOpen.set(!navOpen())">
+                (click)="$event.stopPropagation(); navOpen.set(!navOpen())">
           <i class="bi" [class.bi-list]="!navOpen()" [class.bi-x]="navOpen()"></i>
         </button>
 
@@ -273,9 +273,9 @@ export class AppComponent {
     }, { allowSignalWrites: true });
   }
 
-  // Close any open menu when clicking anywhere outside it
+  // Close any open menu/nav when clicking anywhere outside it
   @HostListener('document:click')
-  closeMenu() { this.menuOpen.set(false); this.bellOpen.set(false); }
+  closeMenu() { this.menuOpen.set(false); this.bellOpen.set(false); this.navOpen.set(false); }
 
   toggleBell() {
     this.menuOpen.set(false);
