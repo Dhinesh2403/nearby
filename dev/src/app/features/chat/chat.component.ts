@@ -6,6 +6,7 @@ import { RouterLink, ActivatedRoute } from '@angular/router';
 import { AuthService }   from '../../core/auth/auth.service';
 import { SocketService } from '../../core/services/api.service';
 import { ChatService }   from '../../core/services/chat.service';
+import { UploadService } from '../../core/services/upload.service';
 import { Subscription }  from 'rxjs';
 
 interface Msg { id:string; senderId:string; senderName:string; text:string; image?:string; ts:Date; mine:boolean; seen?:boolean; }
@@ -62,7 +63,12 @@ interface Msg { id:string; senderId:string; senderName:string; text:string; imag
       <!-- Input -->
       <div class="chat-input-bar">
         <div class="container">
-          @if (pendingImage()) {
+          @if (uploadingImg()) {
+            <div class="img-preview">
+              <div class="nb-spinner" style="width:24px;height:24px"></div>
+              <span class="ip-lbl">Uploading…</span>
+            </div>
+          } @else if (pendingImage()) {
             <div class="img-preview">
               <img [src]="pendingImage()" alt="to send" />
               <button class="ip-del" (click)="pendingImage.set('')"><i class="bi bi-x"></i></button>
@@ -70,8 +76,8 @@ interface Msg { id:string; senderId:string; senderName:string; text:string; imag
             </div>
           }
           <div class="ci-inner">
-            <button class="attach-btn" (click)="fi.click()" title="Attach photo / payment screenshot">
-              <i class="bi bi-paperclip"></i>
+            <button class="attach-btn" (click)="!uploadingImg() && fi.click()" [disabled]="uploadingImg()" title="Attach photo / payment screenshot">
+              <i class="bi" [class.bi-paperclip]="!uploadingImg()" [class.bi-hourglass-split]="uploadingImg()"></i>
             </button>
             <input #fi type="file" hidden accept="image/*" (change)="onAttach($event)" />
             <input type="text" class="ci-input" [(ngModel)]="newMsg"
@@ -141,6 +147,7 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
   newMsg       = '';
   typing       = signal(false);
   pendingImage = signal('');
+  uploadingImg = signal(false);
   lightbox     = signal<string | null>(null);
   otherName    = 'Conversation';
   backLink     = '/chats';
@@ -152,6 +159,7 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
     public  auth:  AuthService,
     private chat:  ChatService,
     private socket: SocketService,
+    private uploadSvc: UploadService,
   ) {}
 
   private get myId() { return this.auth.currentUser()?._id ?? ''; }
@@ -209,16 +217,24 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
     const f = el.files?.[0];
     if (!f) return;
     if (f.size > 5 * 1024 * 1024) { alert('Image is over 5 MB.'); el.value = ''; return; }
-    const reader = new FileReader();
-    reader.onload = () => this.pendingImage.set(reader.result as string);
-    reader.readAsDataURL(f);
     el.value = '';
+    this.uploadingImg.set(true);
+    this.uploadSvc.uploadImage(f, 'provider', 'Nearby/chats').subscribe({
+      next: result => {
+        this.pendingImage.set(result.url);
+        this.uploadingImg.set(false);
+      },
+      error: () => {
+        alert('Image upload failed. Please try again.');
+        this.uploadingImg.set(false);
+      },
+    });
   }
 
   send() {
     const t   = this.newMsg.trim();
     const img = this.pendingImage();
-    if ((!t && !img) || !this.convId) return;
+    if ((!t && !img) || !this.convId || this.uploadingImg()) return;
     const user = this.auth.currentUser();
     // Optimistic bubble
     this.messages.update(msgs => [...msgs, {

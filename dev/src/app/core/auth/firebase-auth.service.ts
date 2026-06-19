@@ -16,6 +16,7 @@ export class FirebaseAuthService {
   private auth?: Auth;
   private recaptcha?: RecaptchaVerifier;
   private confirmation?: ConfirmationResult;
+  private containerId?: string;
 
   // True only once real keys are pasted into environment.firebase.
   get isConfigured(): boolean {
@@ -30,13 +31,26 @@ export class FirebaseAuthService {
     return this.auth;
   }
 
-  // Build (once) an invisible reCAPTCHA bound to a container element id.
+  // Build a fresh invisible reCAPTCHA bound to a container element id.
+  // grecaptcha refuses to render twice into the same element, so we always
+  // tear down any previous widget (and wipe the container DOM) first.
   private ensureRecaptcha(containerId: string): RecaptchaVerifier {
     const auth = this.ensureInit();
-    if (!this.recaptcha) {
-      this.recaptcha = new RecaptchaVerifier(auth, containerId, { size: 'invisible' });
-    }
+    this.teardownRecaptcha();
+    this.containerId = containerId;
+    this.recaptcha = new RecaptchaVerifier(auth, containerId, { size: 'invisible' });
     return this.recaptcha;
+  }
+
+  // Fully destroy the current reCAPTCHA: clear the Firebase verifier AND
+  // empty the host element so a new widget can be rendered on the next click.
+  private teardownRecaptcha(): void {
+    try { this.recaptcha?.clear(); } catch { /* ignore */ }
+    this.recaptcha = undefined;
+    if (this.containerId) {
+      const el = document.getElementById(this.containerId);
+      if (el) el.innerHTML = '';
+    }
   }
 
   // Step 1 — send the OTP SMS. phone must be E.164 (e.g. +919876543210).
@@ -56,8 +70,7 @@ export class FirebaseAuthService {
 
   // Reset reCAPTCHA between attempts (e.g. after a failed code).
   reset(): void {
-    try { this.recaptcha?.clear(); } catch { /* ignore */ }
-    this.recaptcha = undefined;
+    this.teardownRecaptcha();
     this.confirmation = undefined;
   }
 }

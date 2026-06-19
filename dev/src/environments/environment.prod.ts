@@ -15,9 +15,9 @@ export const environment = {
   adsense: {
     publisherId: 'ca-pub-6613739357752442',
     slots: {
-      browseBanner:   '0000000001',
-      providerBanner: '0000000002',
-      sidebar:        '0000000003',
+      browseBanner:   '4908119425',
+      providerBanner: '6523463744',
+      sidebar:        '8738297619',
     },
     enabled: true,
   },

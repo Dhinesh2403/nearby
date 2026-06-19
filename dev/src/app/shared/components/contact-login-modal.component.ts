@@ -118,9 +118,11 @@ import { AuthService } from '../../core/auth/auth.service';
     </div>
   `,
   styles: [`
-    .clm-backdrop { position:fixed; inset:0; background:rgba(15,23,42,.6); backdrop-filter:blur(4px); z-index:2000; display:flex; align-items:center; justify-content:center; padding:1rem; animation:clmFade .2s ease-out; }
+    .clm-backdrop { position:fixed; inset:0; background:rgba(15,23,42,.6); backdrop-filter:blur(4px); z-index:2000; display:flex; align-items:center; justify-content:center; padding:1rem; animation:clmFade .2s ease-out; overflow-y:auto; }
     @keyframes clmFade { from { opacity:0; } to { opacity:1; } }
-    .clm-card { background:#fff; border-radius:var(--radius-lg); padding:1.75rem; width:min(420px,100%); position:relative; box-shadow:var(--shadow-lg); animation:clmUp .3s cubic-bezier(.4,0,.2,1); }
+    .clm-card { background:#fff; border-radius:var(--radius-lg); padding:1.75rem; width:min(420px,100%); position:relative; box-shadow:var(--shadow-lg); animation:clmUp .3s cubic-bezier(.4,0,.2,1); max-height:calc(100vh - 2rem); overflow-y:auto; margin:auto; }
+    /* On small phones shift card to top so keyboard doesn't push it off-screen */
+    @media (max-width:480px) { .clm-backdrop { align-items:flex-start; } .clm-card { margin:auto; padding:1.25rem; } }
     @keyframes clmUp { from { opacity:0; transform:translateY(20px) scale(.97); } to { opacity:1; transform:translateY(0) scale(1); } }
     .clm-x { position:absolute; top:14px; right:14px; background:none; border:none; font-size:1rem; color:var(--nb-text-muted); cursor:pointer; transition:color .15s; }
     .clm-x:hover { color:var(--nb-danger); }

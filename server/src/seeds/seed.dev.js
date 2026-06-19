@@ -96,6 +96,7 @@ const run = async () => {
     const doc = await User.create({
       name: u.name, email: u.email, phone: u.phone,
       passwordHash: u.password,
+      hasPassword: true,
       role: u.role,
       location: {
         type: 'Point',
