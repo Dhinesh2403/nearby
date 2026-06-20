@@ -52,7 +52,8 @@ import { UploadService } from '../../core/services/upload.service';
             <div class="col-sm-6">
               <label class="nb-label">Category *</label>
               <select class="nb-input" [(ngModel)]="form.category">
-                @for (c of categories; track c.value) { <option [value]="c.value">{{ c.label }}</option> }
+                @for (c of categories(); track c.value) { <option [value]="c.value">{{ c.label }}</option> }
+                <option value="__other__">— My category isn't listed —</option>
               </select>
             </div>
             <div class="col-sm-6">
@@ -60,6 +61,32 @@ import { UploadService } from '../../core/services/upload.service';
               <input type="text" class="nb-input" [(ngModel)]="form.subCategory" placeholder="e.g. Plumber, Maths Tutor" />
             </div>
           </div>
+
+          @if (form.pendingCategory && form.category !== '__other__') {
+            <div class="cat-pending mb-3">
+              <p class="mb-1"><i class="bi bi-hourglass-split me-1"></i>
+                <strong>"{{ form.pendingCategory }}"</strong> is awaiting admin approval.</p>
+              <p class="cat-req-sub mb-2">Until it's approved your listing appears under <strong>Others</strong>. We'll move you over automatically once it's live.</p>
+              <button class="btn btn-sm btn-outline-secondary" (click)="editCategoryRequest()">
+                <i class="bi bi-pencil me-1"></i>Change requested category
+              </button>
+            </div>
+          }
+
+          @if (form.category === '__other__') {
+            <div class="cat-req mb-3">
+              <p class="cat-req-title"><i class="bi bi-plus-circle me-1"></i>Request a new category</p>
+              <p class="cat-req-sub">Tell us your line of work and we'll ask the admin to add it. Until it's approved your listing shows under <strong>Others</strong>; we'll move you to the new category automatically once it's live.</p>
+              <input type="text" class="nb-input mb-2" [(ngModel)]="reqName" maxlength="80"
+                     placeholder="Category you want (e.g. Solar Panel Installation)" />
+              <textarea class="nb-input mb-2" rows="2" [(ngModel)]="reqNote" maxlength="500"
+                        placeholder="Briefly describe what you offer (optional)"></textarea>
+              <button class="btn-nb-primary btn btn-sm" (click)="sendCategoryRequest()" [disabled]="reqSending()">
+                @if (reqSending()) { <span class="spinner-border spinner-border-sm me-2"></span> }
+                <i class="bi bi-send me-1"></i>{{ form.pendingCategory ? 'Update request' : 'Send request to admin' }}
+              </button>
+            </div>
+          }
           <div class="row g-3 mb-2">
             <div class="col-sm-4">
               <label class="nb-label">Price From (₹)</label>
@@ -182,6 +209,11 @@ import { UploadService } from '../../core/services/upload.service';
     .photo-thumb { position:relative;width:96px;height:96px;border-radius:var(--radius-md);overflow:hidden;border:1px solid var(--nb-border); }
     .photo-thumb img { width:100%;height:100%;object-fit:cover; }
     .photo-del { position:absolute;top:3px;right:3px;width:22px;height:22px;border:none;border-radius:50%;background:rgba(0,0,0,.6);color:#fff;font-size:.75rem;display:flex;align-items:center;justify-content:center;cursor:pointer; }
+    .cat-req { background:#EFF6FF;border:1px solid var(--nb-primary-light);border-radius:var(--radius-md);padding:1rem; }
+    .cat-req-title { font-weight:700;font-size:.875rem;color:var(--nb-primary);margin:0 0 2px; }
+    .cat-req-sub { font-size:.78rem;color:var(--nb-text-muted);margin:0 0 .75rem; }
+    .cat-pending { background:#FEF3C7;border:1px solid #FCD34D;border-radius:var(--radius-md);padding:1rem;font-size:.85rem; }
+    .cat-pending .cat-req-sub { margin-bottom:.5rem; }
   `]
 })
 export class ProviderEditComponent implements OnInit {
@@ -194,17 +226,25 @@ export class ProviderEditComponent implements OnInit {
 
   tagDraft   = '';
   allDays    = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
-  categories = [
+
+  // Populated from /api/categories (single source of truth). Falls back to a
+  // minimal set if the request fails so the form is never empty.
+  categories = signal<{ value: string; label: string }[]>([
     { value: 'home_services', label: 'Home Services' },
     { value: 'education',     label: 'Education' },
     { value: 'food',          label: 'Food & Essentials' },
     { value: 'wellness',      label: 'Wellness' },
     { value: 'events',        label: 'Events' },
-  ];
+  ]);
+
+  // "Request a new category" panel state.
+  reqName    = '';
+  reqNote    = '';
+  reqSending = signal(false);
 
   form = {
     businessName: '', tagline: '', bio: '',
-    category: 'home_services', subCategory: '',
+    category: 'home_services', pendingCategory: '', subCategory: '',
     skills: [] as string[], experience: 0, price: 0, priceMax: 0, isOnline: false,
     images: [] as string[],
     availability: { days: ['Mon','Tue','Wed','Thu','Fri'] as string[], startTime: '09:00', endTime: '18:00' },
@@ -213,6 +253,15 @@ export class ProviderEditComponent implements OnInit {
   constructor(private api: ApiService, private toast: ToastService, private router: Router, private uploadSvc: UploadService) {}
 
   ngOnInit() {
+    // Load the full canonical category list (public endpoint).
+    this.api.get<ApiResponse<any[]>>('/categories').subscribe({
+      next: res => {
+        const list = (res.data ?? []).map(c => ({ value: c.id, label: c.label }));
+        if (list.length) this.categories.set(list);
+      },
+      error: () => { /* keep fallback list */ },
+    });
+
     this.api.get<ApiResponse<Provider>>('/providers/my').subscribe({
       next: res => {
         const p = res.data;
@@ -221,6 +270,7 @@ export class ProviderEditComponent implements OnInit {
         this.form.tagline      = p.tagline ?? '';
         this.form.bio          = p.bio ?? '';
         this.form.category     = p.category ?? 'home_services';
+        this.form.pendingCategory = (p as any).pendingCategory ?? '';
         this.form.subCategory  = p.subCategory ?? '';
         this.form.skills       = p.skills ?? [];
         this.form.experience   = p.experience ?? 0;
@@ -291,23 +341,58 @@ export class ProviderEditComponent implements OnInit {
   }
   removeTag(i: number) { this.form.skills = this.form.skills.filter((_, idx) => idx !== i); }
 
+  // Re-open the request panel to change a category that's still pending.
+  editCategoryRequest() {
+    this.reqName = this.form.pendingCategory;
+    this.reqNote = '';
+    this.form.category = '__other__';
+  }
+
+  // Ask the admin to add a category that isn't in the list yet. The server
+  // parks this provider under "Others" until the request is approved.
+  sendCategoryRequest() {
+    const name = this.reqName.trim();
+    if (!name) { this.toast.error('Enter the category you want added.'); return; }
+    this.reqSending.set(true);
+    this.api.post<ApiResponse<any>>('/categories/requests', { name, note: this.reqNote.trim() }).subscribe({
+      next: res => {
+        this.reqSending.set(false);
+        this.toast.success(res.message || 'Request sent to admin.');
+        this.reqNote = '';
+        this.form.pendingCategory = name;   // reflect the pending state
+        this.form.category = 'others';      // matches how the server parks us
+      },
+      error: err => {
+        this.reqSending.set(false);
+        this.toast.error(err.error?.message || 'Could not send request.');
+      },
+    });
+  }
+
   save() {
     this.commitTag();   // fold any half-typed tag into the list
     this.error.set('');
     if (!this.form.businessName.trim()) { this.error.set('Business name is required.'); return; }
     if (!this.form.category)            { this.error.set('Please choose a category.'); return; }
+    if (this.form.category === '__other__') {
+      this.error.set('Pick a category, or send a request for a new one above.'); return;
+    }
 
     this.saving.set(true);
     const done = (msg: string) => { this.saving.set(false); this.toast.success(msg); };
     const failHandler = (m: string) => { this.saving.set(false); this.error.set(m || 'Save failed.'); };
 
+    // pendingCategory is managed server-side by the request flow — don't let a
+    // profile save overwrite it.
+    const { pendingCategory, ...payload } = this.form;
+
     if (this.isNew()) {
-      this.api.post<ApiResponse<Provider>>('/providers', this.form).subscribe({
+      this.api.post<ApiResponse<Provider>>('/providers', payload).subscribe({
         next: res => { done('Service profile created.'); this.providerId = res.data._id; this.isNew.set(false); },
         error: err => failHandler(err.error?.message),
       });
     } else {
-      this.api.put<ApiResponse<Provider>>(`/providers/${this.providerId}`, this.form).subscribe({
+      this.api.put<ApiResponse<Provider>>(`/providers/${this.providerId}`, payload).subscribe({
         next: () => done('Service details updated.'),
         error: err => failHandler(err.error?.message),
       });

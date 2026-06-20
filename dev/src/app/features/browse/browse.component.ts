@@ -78,7 +78,7 @@ import { ContactLoginModalComponent } from '../../shared/components/contact-logi
         <div class="row g-3">
 
           <!-- RESULTS -->
-          <div class="col-lg-8">
+          <div [class]="canSendLead ? 'col-lg-8' : 'col-12'">
             <div class="res-hdr">
               <span class="res-count">{{ total() }} results</span>
               @if (cat() !== 'all') {
@@ -158,7 +158,8 @@ import { ContactLoginModalComponent } from '../../shared/components/contact-logi
             <app-banner-ad />
           </div>
 
-          <!-- RIGHT SIDEBAR: lead form (11.17) -->
+          <!-- RIGHT SIDEBAR: lead form (11.17) — customers/guests only, not providers/admins -->
+          @if (canSendLead) {
           <div class="col-lg-4">
             <div class="lead-card">
               <h6 class="lead-title">Get the best deals</h6>
@@ -175,6 +176,7 @@ import { ContactLoginModalComponent } from '../../shared/components/contact-logi
               <p class="lead-note"><i class="bi bi-shield-check"></i> Your number is safe with us.</p>
             </div>
           </div>
+          }
         </div>
       </div>
     </div>
@@ -329,6 +331,13 @@ export class BrowseComponent implements OnInit {
     private api: ApiService, private route: ActivatedRoute, private router: Router,
     private auth: AuthService, private toast: ToastService, private chat: ChatService,
   ) {}
+
+  // The "Get the best deals" lead form is for customers/guests reaching out to
+  // providers — hide it for provider and admin accounts.
+  get canSendLead(): boolean {
+    const role = this.auth.currentUser()?.role;
+    return role !== 'provider' && role !== 'admin';
+  }
 
   ngOnInit() {
     this.route.queryParams.subscribe(p => {

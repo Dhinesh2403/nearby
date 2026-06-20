@@ -7,6 +7,7 @@ import { CommonModule } from '@angular/common';
 import { Router, RouterLink } from '@angular/router';
 import { ContactLoginModalComponent } from '../../shared/components/contact-login-modal.component';
 import { ToastService } from '../../core/services/toast.service';
+import { SettingsService } from '../../core/services/settings.service';
 
 @Component({
   selector: 'app-provider-register',
@@ -26,9 +27,16 @@ import { ToastService } from '../../core/services/toast.service';
           <li><i class="bi bi-check-circle-fill"></i> See who viewed your profile</li>
         </ul>
 
-        <button class="btn-nb-accent btn btn-lg w-100" (click)="showModal.set(true)">
-          <i class="bi bi-phone me-2"></i>Verify mobile &amp; get started
-        </button>
+        @if (registrationsClosed()) {
+          <div class="pr-closed">
+            <i class="bi bi-lock-fill"></i>
+            <p>New provider registrations are temporarily closed. Please check back soon.</p>
+          </div>
+        } @else {
+          <button class="btn-nb-accent btn btn-lg w-100" (click)="showModal.set(true)">
+            <i class="bi bi-phone me-2"></i>Get started
+          </button>
+        }
 
         <p class="pr-alt">
           Already a provider? <a routerLink="/auth/login">Sign in</a>
@@ -55,12 +63,21 @@ import { ToastService } from '../../core/services/toast.service';
     .pr-benefits i { color:var(--nb-success); }
     .pr-alt { font-size:.8rem; color:var(--nb-text-muted); margin:1rem 0 0; }
     .pr-alt a { font-weight:600; }
+    .pr-closed { display:flex; gap:10px; align-items:flex-start; text-align:left; background:#FEF3C7; border-radius:var(--radius-md); padding:14px 16px; }
+    .pr-closed i { color:var(--nb-warning); font-size:1.2rem; margin-top:2px; }
+    .pr-closed p { margin:0; font-size:.875rem; font-weight:500; color:var(--nb-text); }
   `]
 })
 export class ProviderRegisterComponent {
   showModal = signal(false);
 
-  constructor(private router: Router, private toast: ToastService) {}
+  constructor(private router: Router, private toast: ToastService, private settings: SettingsService) {}
+
+  // Admin can freeze new provider signups (5.12). Defaults to open until
+  // settings load so we never wrongly block while the fetch is in flight.
+  registrationsClosed(): boolean {
+    return this.settings.settings()?.registrationsEnabled === false;
+  }
 
   onVerified() {
     this.showModal.set(false);

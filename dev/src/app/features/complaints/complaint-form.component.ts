@@ -7,6 +7,7 @@ import { ApiService, ApiResponse } from '../../core/services/api.service';
 import { AuthService }   from '../../core/auth/auth.service';
 import { ToastService }  from '../../core/services/toast.service';
 import { UploadService } from '../../core/services/upload.service';
+import { SettingsService } from '../../core/services/settings.service';
 
 @Component({
   selector: 'app-complaint-form',
@@ -22,8 +23,15 @@ import { UploadService } from '../../core/services/upload.service';
           <div class="success-icon"><i class="bi bi-shield-check-fill"></i></div>
           <h4>Complaint Submitted</h4>
           <p>Our team will review and respond within 24 hours.</p>
-          <div class="ref-box">Reference: <strong>#COMP-{{ refId }}</strong></div>
-          <a routerLink="/dashboard/customer" class="btn-nb-primary btn mt-3">Back to Dashboard</a>
+          <div class="success-actions">
+            <div class="ref-box">Reference: <strong>#COMP-{{ refId }}</strong></div>
+            <a routerLink="/dashboard/customer" class="btn-nb-primary btn">Back to Dashboard</a>
+          </div>
+        </div>
+      } @else if (complaintsClosed()) {
+        <div class="info-note">
+          <i class="bi bi-info-circle-fill"></i>
+          <p>Complaint submissions are currently disabled. Please try again later or contact support directly.</p>
         </div>
       } @else {
         <div class="form-card">
@@ -133,7 +141,8 @@ import { UploadService } from '../../core/services/upload.service';
     .success-card { text-align:center;padding:3rem 2rem;background:#fff;border:1px solid var(--nb-border);border-radius:var(--radius-xl); }
     .success-icon { font-size:3.5rem;color:var(--nb-primary);margin-bottom:1rem; }
     .success-card h4 { font-size:1.4rem;font-weight:800;margin-bottom:.5rem; }
-    .ref-box { background:var(--nb-surface-2);border-radius:var(--radius-md);padding:10px 20px;display:inline-block;font-size:.875rem;color:var(--nb-text-muted);margin-top:.5rem; }
+    .ref-box { background:var(--nb-surface-2);border-radius:var(--radius-md);padding:10px 20px;font-size:.875rem;color:var(--nb-text-muted); }
+    .success-actions { display:flex;flex-wrap:wrap;justify-content:center;align-items:center;gap:.75rem;margin-top:1.5rem; }
   `]
 })
 export class ComplaintFormComponent implements OnInit {
@@ -161,7 +170,14 @@ export class ComplaintFormComponent implements OnInit {
     private toast: ToastService,
     private route: ActivatedRoute,
     private uploadSvc: UploadService,
+    private settings: SettingsService,
   ) {}
+
+  // Admin can disable complaint submissions (5.12). Defaults to open until
+  // settings load so the form isn't wrongly hidden while the fetch is in flight.
+  complaintsClosed(): boolean {
+    return this.settings.settings()?.complaintsEnabled === false;
+  }
 
   ngOnInit() {
     // Report from a provider profile: ?against=<userId>&name=<businessName>

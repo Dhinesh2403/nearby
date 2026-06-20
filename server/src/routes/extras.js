@@ -1,7 +1,7 @@
 // src/routes/reviews.js
 const router = require('express').Router();
 const {
-  Review, Provider, User, Complaint,
+  Review, Provider, User, Complaint, Conversation,
   ContactLog, ProfileView, AdReward, AppSettings, AdminLog,
 } = require('../models');
 const { ok, fail, pushNotify } = require('../utils/helpers');
@@ -109,7 +109,7 @@ complaintRouter.post('/', protect, async (req, res, next) => {
       type:  'complaint',
       title: 'New complaint filed',
       body:  `${req.user.name} reported a ${type} issue.`,
-      link:  '/admin',
+      link:  '/admin?tab=complaints',
     })));
 
     res.status(201).json({ success: true, message: 'Complaint submitted.', data: c });
@@ -126,6 +126,22 @@ complaintRouter.put('/:id/resolve', protect, authorize('admin'), async (req, res
     }, { new: true });
     if (!c) return fail(res, 'Complaint not found.', 404);
     ok(res, c, 'Complaint resolved.');
+  } catch (e) { next(e); }
+});
+
+// POST /api/complaints/:id/chat — admin opens (find-or-create) a support
+// conversation with the user who raised the complaint, to discuss it.
+complaintRouter.post('/:id/chat', protect, authorize('admin'), async (req, res, next) => {
+  try {
+    const complaint = await Complaint.findById(req.params.id).populate('raisedBy', 'name');
+    if (!complaint) return fail(res, 'Complaint not found.', 404);
+    const target = complaint.raisedBy;
+    if (!target) return fail(res, 'The user who raised this complaint no longer exists.', 404);
+
+    const filter = { customerId: target._id, providerUserId: req.user._id, kind: 'support' };
+    let conv = await Conversation.findOne(filter);
+    if (!conv) conv = await Conversation.create(filter);
+    ok(res, { _id: conv._id, otherName: target.name || 'User' });
   } catch (e) { next(e); }
 });
 
@@ -235,14 +251,17 @@ adminRouter.put('/providers/:id/ban', async (req, res, next) => {
     ).populate('userId', 'name');
     if (!p) return fail(res, 'Provider not found.', 404);
 
+    // Deactivate the account too: no listing AND the provider can no longer log in.
+    if (p.userId?._id) await User.findByIdAndUpdate(p.userId._id, { isActive: false });
+
     await logAdmin(req, 'ban_provider', `${p.businessName} (${req.body.reason || 'no reason'})`);
     await pushNotify(req.app.locals.io, p.userId?._id, {
       type:  'account',
-      title: 'Listing suspended',
-      body:  'Your listing has been suspended by the admin.' + (req.body.reason ? ` Reason: ${req.body.reason}` : ''),
+      title: 'Account deactivated',
+      body:  'Your listing was suspended and your account deactivated by the admin.' + (req.body.reason ? ` Reason: ${req.body.reason}` : ''),
       link:  '/dashboard/provider',
     });
-    ok(res, p, 'Provider suspended.');
+    ok(res, p, 'Provider deactivated.');
   } catch (e) { next(e); }
 });
 
@@ -256,14 +275,17 @@ adminRouter.put('/providers/:id/unban', async (req, res, next) => {
     ).populate('userId', 'name');
     if (!p) return fail(res, 'Provider not found.', 404);
 
+    // Re-enable login alongside reinstating the listing.
+    if (p.userId?._id) await User.findByIdAndUpdate(p.userId._id, { isActive: true });
+
     await logAdmin(req, 'unban_provider', p.businessName);
     await pushNotify(req.app.locals.io, p.userId?._id, {
       type:  'account',
-      title: 'Listing reinstated',
-      body:  'Good news — your listing is live again.',
+      title: 'Account reactivated',
+      body:  'Good news — your account is active and your listing is live again.',
       link:  '/dashboard/provider',
     });
-    ok(res, p, 'Provider reinstated.');
+    ok(res, p, 'Provider reactivated.');
   } catch (e) { next(e); }
 });
 
@@ -287,7 +309,28 @@ adminRouter.put('/users/:id/ban', async (req, res, next) => {
     const u = await User.findByIdAndUpdate(req.params.id, { isActive: false }, { new: true });
     if (!u) return fail(res, 'User not found.', 404);
     await logAdmin(req, 'ban_user', u.name);
-    ok(res, u, 'User banned.');
+    await pushNotify(req.app.locals.io, u._id, {
+      type:  'account',
+      title: 'Account deactivated',
+      body:  'Your account has been deactivated by the admin. You can no longer sign in.',
+      link:  '/',
+    });
+    ok(res, u, 'User deactivated.');
+  } catch (e) { next(e); }
+});
+
+adminRouter.put('/users/:id/unban', async (req, res, next) => {
+  try {
+    const u = await User.findByIdAndUpdate(req.params.id, { isActive: true }, { new: true });
+    if (!u) return fail(res, 'User not found.', 404);
+    await logAdmin(req, 'unban_user', u.name);
+    await pushNotify(req.app.locals.io, u._id, {
+      type:  'account',
+      title: 'Account reactivated',
+      body:  'Good news — your account is active again. You can sign in.',
+      link:  '/',
+    });
+    ok(res, u, 'User reactivated.');
   } catch (e) { next(e); }
 });
 
@@ -299,7 +342,7 @@ adminRouter.get('/settings', async (req, res, next) => {
 adminRouter.put('/settings', async (req, res, next) => {
   try {
     const allowed = [
-      'otpEnabled','otpCustomerEnabled','otpProviderEnabled','adsEnabled',
+      'otpEnabled','adsEnabled',
       'rewardedAdsEnabled','whoVisitedEnabled','adsRequiredCount',
       'registrationsEnabled','complaintsEnabled','featuredCategories',
       'bannerAdUnitId','rewardedAdUnitId',
@@ -353,8 +396,6 @@ settingsRouter.get('/public', async (req, res, next) => {
     ok(res, {
       announcement:         s.announcement,
       otpEnabled:           s.otpEnabled,
-      otpCustomerEnabled:   s.otpCustomerEnabled,
-      otpProviderEnabled:   s.otpProviderEnabled,
       adsEnabled:           s.adsEnabled,
       rewardedAdsEnabled:   s.rewardedAdsEnabled,
       whoVisitedEnabled:    s.whoVisitedEnabled,

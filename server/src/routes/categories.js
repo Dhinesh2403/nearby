@@ -3,11 +3,14 @@
 // so the frontend doesn't hard-code it. Includes a live provider count
 // per category. Public — no auth required.
 const router = require('express').Router();
-const { Provider, AppSettings } = require('../models');
-const { ok } = require('../utils/helpers');
+const { Provider, AppSettings, CategoryRequest, User, Category } = require('../models');
+const { ok, fail, pushNotify } = require('../utils/helpers');
+const { protect, authorize } = require('../middleware/auth');
 
-// Canonical category metadata. Keep `id` in sync with the Provider schema enum.
-const CATEGORIES = [
+// Default category metadata — used to seed the DB-backed Category collection
+// on first use. After seeding, the live list comes from the database so admin
+// approvals can add new categories without a code change.
+const DEFAULT_CATEGORIES = [
   { id: 'home_services',    label: 'Home Services',      icon: 'bi-tools',            color: '#2563A8',
     image: 'https://images.unsplash.com/photo-1581244277943-fe4a9c777189?w=400',
     subCategories: ['Plumber', 'Electrician', 'Carpenter', 'Painter', 'Mason', 'Handyman', 'Waterproofing', 'Tile Work'] },
@@ -111,12 +114,42 @@ const CATEGORIES = [
   { id: 'agriculture',      label: 'Agriculture & Organic', icon: 'bi-tree',          color: '#15803D',
     image: 'https://images.unsplash.com/photo-1500651230702-0e2d8a49d4ad?w=400',
     subCategories: ['Organic Vegetables', 'Organic Fruits', 'Farm Fresh Eggs', 'Dairy Products', 'Vermicompost', 'Farm Worker', 'Tractor Service', 'Irrigation System'] },
+
+  // System fallback bucket — providers whose requested category is awaiting
+  // approval (or was rejected) appear here publicly. Always kept last.
+  { id: 'others',           label: 'Others',             icon: 'bi-three-dots',       color: '#6B7280',
+    image: 'https://images.unsplash.com/photo-1521791136064-7986c2920216?w=400',
+    subCategories: [] },
 ];
+
+// slugify — turn a free-text category name into a URL/id-safe slug.
+const slugify = (name) =>
+  String(name).toLowerCase().trim().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 60);
+
+// ensureSeeded — populate the Category collection from the defaults the first
+// time it's empty. Idempotent and safe to call on every request.
+let seeding = null;
+const ensureSeeded = async () => {
+  if (await Category.estimatedDocumentCount() > 0) return;
+  if (!seeding) {
+    seeding = Category.insertMany(
+      DEFAULT_CATEGORIES.map((c, i) => ({
+        slug: c.id, label: c.label, icon: c.icon, color: c.color,
+        image: c.image, subCategories: c.subCategories,
+        order: c.id === 'others' ? 999 : i, isActive: true,
+      })),
+      { ordered: false }
+    ).catch(() => { /* concurrent seed — ignore dup-key errors */ }).finally(() => { seeding = null; });
+  }
+  await seeding;
+};
 
 // GET /api/categories — metadata + live active-provider counts + featured flags
 router.get('/', async (req, res, next) => {
   try {
-    const [counts, settings] = await Promise.all([
+    await ensureSeeded();
+    const [cats, counts, settings] = await Promise.all([
+      Category.find({ isActive: true }).sort({ order: 1, label: 1 }),
       Provider.aggregate([
         { $match: { status: 'active', isVerified: true } },
         { $group: { _id: '$category', count: { $sum: 1 } } },
@@ -126,12 +159,134 @@ router.get('/', async (req, res, next) => {
     const countMap = Object.fromEntries(counts.map(c => [c._id, c.count]));
     const featured = settings.featuredCategories || [];
 
-    const data = CATEGORIES.map(c => ({
-      ...c,
-      count: countMap[c.id] || 0,
-      featured: featured.includes(c.id),
+    const data = cats.map(c => ({
+      id: c.slug, label: c.label, icon: c.icon, color: c.color,
+      image: c.image, subCategories: c.subCategories,
+      count: countMap[c.slug] || 0,
+      featured: featured.includes(c.slug),
     }));
     ok(res, data);
+  } catch (e) { next(e); }
+});
+
+// ── CATEGORY REQUESTS ─────────────────────────────────────────
+// A provider whose trade isn't in the canonical list can ask the
+// admin to add it. POST is provider-only; the admin list + status
+// update are admin-only.
+
+// POST /api/categories/requests — provider proposes a new category.
+// The provider is parked under 'others' publicly until an admin approves, so
+// their requested (unapproved) category is never shown live. Re-submitting
+// updates the provider's existing pending request instead of duplicating it.
+router.post('/requests', protect, authorize('provider'), async (req, res, next) => {
+  try {
+    const name = String(req.body.name || '').trim();
+    const note = String(req.body.note || '').trim().slice(0, 500);
+    if (!name) return fail(res, 'Please enter the category you want added.');
+    if (name.length > 80) return fail(res, 'Category name is too long (max 80 characters).');
+
+    const provider = await Provider.findOne({ userId: req.user._id }).select('_id pendingCategory category');
+
+    // Reuse an open request for this provider so they can refine what they want.
+    let reqDoc = provider
+      ? await CategoryRequest.findOne({ providerId: provider._id, status: 'pending' })
+      : null;
+    if (reqDoc) {
+      reqDoc.name = name; reqDoc.note = note;
+      await reqDoc.save();
+    } else {
+      reqDoc = await CategoryRequest.create({
+        requestedBy: req.user._id,
+        providerId:  provider?._id || null,
+        name, note,
+      });
+    }
+
+    // Park the provider under 'others' publicly while awaiting approval.
+    if (provider) {
+      provider.pendingCategory = name;
+      provider.category = 'others';
+      await provider.save();
+    }
+
+    // Notify every admin (non-fatal — never block the reply).
+    try {
+      const admins = await User.find({ role: 'admin' }).select('_id');
+      await Promise.all(admins.map(a => pushNotify(req.app.locals.io, a._id, {
+        type:  'category_request',
+        title: 'New category request',
+        body:  `${req.user.name} requested "${name}".`,
+        link:  '/admin',
+      })));
+    } catch (_) { /* notification failures must not fail the request */ }
+
+    res.status(201).json({ success: true, message: 'Request sent to admin. Until it\'s approved your listing shows under "Others".', data: { _id: reqDoc._id } });
+  } catch (e) { next(e); }
+});
+
+// GET /api/categories/requests — admin list (newest first)
+router.get('/requests', protect, authorize('admin'), async (req, res, next) => {
+  try {
+    const list = await CategoryRequest.find()
+      .populate('requestedBy', 'name email phone')
+      .populate('providerId', 'businessName')
+      .sort({ createdAt: -1 })
+      .limit(100);
+    ok(res, list);
+  } catch (e) { next(e); }
+});
+
+// PUT /api/categories/requests/:id — admin approves or rejects.
+// Approve auto-publishes a live Category (creating the slug if new) and moves
+// the requesting provider onto it. Reject leaves them parked under 'others'.
+router.put('/requests/:id', protect, authorize('admin'), async (req, res, next) => {
+  try {
+    const { status } = req.body;
+    if (!['approved', 'rejected'].includes(status))
+      return fail(res, 'Status must be "approved" or "rejected".');
+
+    const reqDoc = await CategoryRequest.findById(req.params.id);
+    if (!reqDoc) return fail(res, 'Request not found.', 404);
+    if (reqDoc.status !== 'pending')
+      return fail(res, `This request was already ${reqDoc.status}.`);
+
+    let newSlug = '';
+
+    if (status === 'approved') {
+      await ensureSeeded();
+      newSlug = slugify(reqDoc.name) || `cat_${Date.now()}`;
+
+      // Reuse an existing category with this slug, else publish a new one.
+      let cat = await Category.findOne({ slug: newSlug });
+      if (!cat) {
+        cat = await Category.create({ slug: newSlug, label: reqDoc.name.trim(), isActive: true });
+      } else if (!cat.isActive) {
+        cat.isActive = true; await cat.save();
+      }
+      newSlug = cat.slug;
+
+      // Move the requesting provider from 'others' onto the new live category.
+      if (reqDoc.providerId) {
+        await Provider.findByIdAndUpdate(reqDoc.providerId, { category: newSlug, pendingCategory: '' });
+      }
+    } else {
+      // Rejected — stop showing the proposed category; stay under 'others'.
+      if (reqDoc.providerId) {
+        await Provider.findByIdAndUpdate(reqDoc.providerId, { pendingCategory: '' });
+      }
+    }
+
+    reqDoc.status = status;
+    await reqDoc.save();
+
+    // Tell the provider the outcome.
+    pushNotify(req.app.locals.io, reqDoc.requestedBy, status === 'approved'
+      ? { type: 'category_request', title: 'Category approved',
+          body:  `"${reqDoc.name}" is now live — your listing has moved to it.`, link: '/dashboard/provider' }
+      : { type: 'category_request', title: 'Category request declined',
+          body:  `We couldn't add "${reqDoc.name}". Your listing stays under "Others".`, link: '/provider/services' });
+
+    ok(res, reqDoc, `Request ${status}.`);
   } catch (e) { next(e); }
 });
 

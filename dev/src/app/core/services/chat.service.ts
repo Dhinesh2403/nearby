@@ -47,6 +47,19 @@ export class ChatService {
       .pipe(map(r => r.data));
   }
 
+  // Open (find or create) a support conversation. A customer/provider passes no
+  // argument to reach the admin; an admin passes the target user's id.
+  openSupport(userId?: string): Observable<{ _id: string; otherName: string }> {
+    return this.api.post<ApiResponse<{ _id: string; otherName: string }>>('/chats/support', userId ? { userId } : {})
+      .pipe(map(r => r.data));
+  }
+
+  // Admin: open (find or create) a support conversation with the user who raised a complaint.
+  openComplaintChat(complaintId: string): Observable<{ _id: string; otherName: string }> {
+    return this.api.post<ApiResponse<{ _id: string; otherName: string }>>(`/complaints/${complaintId}/chat`, {})
+      .pipe(map(r => r.data));
+  }
+
   loadList() {
     this.api.get<ApiResponse<ChatSummary[]>>('/chats').subscribe({
       next: res => this.conversations.set(res.data ?? []),

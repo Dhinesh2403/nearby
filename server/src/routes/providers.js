@@ -1,12 +1,24 @@
 // src/routes/providers.js
 const router   = require('express').Router();
-const { Provider, User, ContactLog, ProfileView, Review, AdReward, AppSettings } = require('../models');
+const { Provider, User, ContactLog, ProfileView, Review, AdReward, AppSettings, Category, SavedProvider } = require('../models');
 const { ok, paginated, fail, pushNotify } = require('../utils/helpers');
 const { protect, authorize }  = require('../middleware/auth');
+
+// Category is no longer a fixed schema enum — validate it against the live,
+// admin-managed Category list. Returns an error string, or '' when valid.
+const invalidCategory = async (category) => {
+  if (!category) return 'Please choose a category.';
+  if (category === '__other__') return 'Pick a category, or request a new one first.';
+  const exists = await Category.exists({ slug: category, isActive: true });
+  return exists ? '' : 'That category is not available. Please choose another.';
+};
 
 // How many rewarded ads must be watched to unlock the visitor list —
 // admin-configurable via AppSettings (5.12), default 2.
 const adsRequired = async () => (await AppSettings.getSingleton()).adsRequiredCount ?? 2;
+
+// Whether the admin has the "Who Visited" feature switched on (5.12).
+const whoVisitedEnabled = async () => (await AppSettings.getSingleton()).whoVisitedEnabled !== false;
 
 // Start of the rolling "this week" window (today + previous 6 days, at midnight).
 // Used for both the visitor count and the ad-unlock state so they always agree.
@@ -155,6 +167,9 @@ router.get('/my/stats', protect, authorize('provider'), async (req, res, next) =
 // GET /api/providers/my/visitors/teaser — count + unlock state (4.8)
 router.get('/my/visitors/teaser', protect, authorize('provider'), async (req, res, next) => {
   try {
+    if (!(await whoVisitedEnabled()))
+      return fail(res, 'The "Who Visited" feature is currently disabled.', 403);
+
     const p = await Provider.findOne({ userId: req.user._id });
     if (!p) return fail(res, 'Provider profile not found.', 404);
 
@@ -169,6 +184,9 @@ router.get('/my/visitors/teaser', protect, authorize('provider'), async (req, re
 // When the threshold is reached, flag the batch unlocked + notify the provider (4.9).
 router.post('/my/ad-reward', protect, authorize('provider'), async (req, res, next) => {
   try {
+    if (!(await whoVisitedEnabled()))
+      return fail(res, 'The "Who Visited" feature is currently disabled.', 403);
+
     const p = await Provider.findOne({ userId: req.user._id });
     if (!p) return fail(res, 'Provider profile not found.', 404);
 
@@ -197,9 +215,23 @@ router.post('/my/ad-reward', protect, authorize('provider'), async (req, res, ne
   } catch (e) { next(e); }
 });
 
+// PUT /api/providers/my/preferences — provider self-service toggles (lead alerts)
+router.put('/my/preferences', protect, authorize('provider'), async (req, res, next) => {
+  try {
+    const update = {};
+    if (typeof req.body.leadNotifications === 'boolean') update.leadNotifications = req.body.leadNotifications;
+    const p = await Provider.findOneAndUpdate({ userId: req.user._id }, update, { new: true });
+    if (!p) return fail(res, 'Provider profile not found.', 404);
+    ok(res, { leadNotifications: p.leadNotifications }, 'Preferences updated.');
+  } catch (e) { next(e); }
+});
+
 // GET /api/providers/my/visitors — full visitor list (only when unlocked) (4.8)
 router.get('/my/visitors', protect, authorize('provider'), async (req, res, next) => {
   try {
+    if (!(await whoVisitedEnabled()))
+      return fail(res, 'The "Who Visited" feature is currently disabled.', 403);
+
     const p = await Provider.findOne({ userId: req.user._id });
     if (!p) return fail(res, 'Provider profile not found.', 404);
 
@@ -220,6 +252,52 @@ router.get('/my/visitors', protect, authorize('provider'), async (req, res, next
     }));
 
     ok(res, visitors);
+  } catch (e) { next(e); }
+});
+
+// GET /api/providers/saved — the logged-in customer's saved/bookmarked providers.
+// Registered before GET /:id so "saved" isn't treated as a provider id.
+router.get('/saved', protect, authorize('customer'), async (req, res, next) => {
+  try {
+    const rows = await SavedProvider.find({ customerId: req.user._id })
+      .sort({ createdAt: -1 })
+      .populate({
+        path: 'providerId',
+        populate: { path: 'userId', select: 'name avatar location' },
+      });
+    // Drop entries whose provider was since deleted.
+    const providers = rows.map(r => r.providerId).filter(Boolean);
+    ok(res, providers);
+  } catch (e) { next(e); }
+});
+
+// GET /api/providers/:id/save — is this provider saved by the current customer?
+router.get('/:id/save', protect, authorize('customer'), async (req, res, next) => {
+  try {
+    const exists = await SavedProvider.exists({ customerId: req.user._id, providerId: req.params.id });
+    ok(res, { saved: !!exists });
+  } catch (e) { next(e); }
+});
+
+// POST /api/providers/:id/save — bookmark a provider (idempotent).
+router.post('/:id/save', protect, authorize('customer'), async (req, res, next) => {
+  try {
+    const provider = await Provider.findById(req.params.id);
+    if (!provider) return fail(res, 'Provider not found.', 404);
+    await SavedProvider.updateOne(
+      { customerId: req.user._id, providerId: provider._id },
+      { $setOnInsert: { customerId: req.user._id, providerId: provider._id } },
+      { upsert: true }
+    );
+    ok(res, { saved: true }, 'Provider saved.');
+  } catch (e) { next(e); }
+});
+
+// DELETE /api/providers/:id/save — remove a bookmark.
+router.delete('/:id/save', protect, authorize('customer'), async (req, res, next) => {
+  try {
+    await SavedProvider.deleteOne({ customerId: req.user._id, providerId: req.params.id });
+    ok(res, { saved: false }, 'Removed from saved.');
   } catch (e) { next(e); }
 });
 
@@ -297,6 +375,8 @@ router.post('/', protect, authorize('provider'), async (req, res, next) => {
   try {
     const exists = await Provider.findOne({ userId: req.user._id });
     if (exists) return fail(res, 'Provider profile already exists.', 409);
+    const badCat = await invalidCategory(req.body.category);
+    if (badCat) return fail(res, badCat);
     const p = await Provider.create({
       ...req.body,
       userId:     req.user._id,
@@ -310,6 +390,10 @@ router.post('/', protect, authorize('provider'), async (req, res, next) => {
 // PUT /api/providers/:id — update own profile
 router.put('/:id', protect, authorize('provider'), async (req, res, next) => {
   try {
+    if (req.body.category !== undefined) {
+      const badCat = await invalidCategory(req.body.category);
+      if (badCat) return fail(res, badCat);
+    }
     const p = await Provider.findOneAndUpdate(
       { _id: req.params.id, userId: req.user._id },
       req.body,

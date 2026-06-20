@@ -64,6 +64,21 @@ export class AuthService {
     );
   }
 
+  // Passwordless sign-up / first-time password set, used when phone OTP is
+  // disabled by the admin. The server re-checks the toggle before trusting it.
+  registerDirect(
+    phone: string,
+    role: 'customer' | 'provider' = 'customer',
+    profile?: { name?: string; city?: string; email?: string },
+    password?: string,
+    reset = false,
+  ) {
+    return this.http.post<any>(`${this.API}/register-direct`, { phone, role, profile, password, reset }).pipe(
+      tap(res => this.saveSession(res.data)),
+      catchError(err => throwError(() => err.error?.message ?? 'Sign up failed'))
+    );
+  }
+
   // Logout — clear session locally and call backend to revoke token
   logout() {
     this.http.post(`${this.API}/logout`, {}).subscribe();

@@ -13,6 +13,8 @@ router.post('/verify-reward', protect, authorize('provider'), async (req, res, n
     const settings = await AppSettings.getSingleton();
     if (!settings.adsEnabled || !settings.rewardedAdsEnabled)
       return fail(res, 'Rewarded ads are currently disabled.', 403);
+    if (settings.whoVisitedEnabled === false)
+      return fail(res, 'The "Who Visited" feature is currently disabled.', 403);
 
     const p = await Provider.findOne({ userId: req.user._id });
     if (!p) return fail(res, 'Provider profile not found.', 404);

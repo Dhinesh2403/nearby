@@ -8,8 +8,6 @@ import { environment } from '../../../environments/environment';
 export interface PublicSettings {
   announcement: { active: boolean; text: string };
   otpEnabled: boolean;
-  otpCustomerEnabled: boolean;
-  otpProviderEnabled: boolean;
   adsEnabled: boolean;
   rewardedAdsEnabled: boolean;
   whoVisitedEnabled: boolean;
@@ -32,5 +30,15 @@ export class SettingsService {
       next: res => this.settings.set(res.data),
       error: () => { /* keep defaults (null) — banners simply hide */ },
     });
+  }
+
+  // Whether the phone-OTP step should be shown. A single admin switch gates
+  // verification for every role. Defaults to TRUE (require OTP) until settings
+  // load, so we never skip verification on a stale/failed fetch. The optional
+  // role argument is unused now but kept so existing call sites stay valid.
+  otpRequired(_role?: 'customer' | 'provider'): boolean {
+    const s = this.settings();
+    if (!s) return true;
+    return s.otpEnabled;
   }
 }

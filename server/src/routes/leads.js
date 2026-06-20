@@ -18,11 +18,12 @@ const matchProviders = async ({ category, location }) => {
 
   const providers = await Provider.find(filter)
     .populate('userId', 'location isDemo')
-    .select('userId isOnline');
+    .select('userId isOnline leadNotifications');
 
   const d = String(location || '').toLowerCase();
   return providers.filter(p => {
     if (p.userId?.isDemo) return false;                 // never ping internal test accounts
+    if (p.leadNotifications === false) return false;    // provider opted out of lead alerts
     if (!d) return true;                                // no district given → anyone in category
     return p.isOnline || (p.userId?.location?.district || '').toLowerCase() === d;
   });

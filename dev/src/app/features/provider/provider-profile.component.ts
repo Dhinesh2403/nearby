@@ -113,7 +113,11 @@ interface Review { id:string; name:string; initial:string; color:string; rating:
                     @if (isOwner()) {
                       <a class="btn-pp-icon" routerLink="/provider/services" title="Edit profile"><i class="bi bi-pencil"></i></a>
                     }
-                    <button class="btn-pp-icon" title="Save"><i class="bi bi-bookmark"></i></button>
+                    <button class="btn-pp-icon" [class.btn-pp-icon--on]="isSaved()"
+                            [title]="isSaved() ? 'Saved — click to remove' : 'Save to your list'"
+                            [disabled]="savingBookmark()" (click)="toggleSave()">
+                      <i class="bi" [class.bi-bookmark-fill]="isSaved()" [class.bi-bookmark]="!isSaved()"></i>
+                    </button>
                   </div>
                 </div>
 
@@ -600,6 +604,8 @@ interface Review { id:string; name:string; initial:string; color:string; rating:
       transition: border-color .15s, color .15s;
     }
     .btn-pp-icon:hover { border-color: var(--nb-primary); color: var(--nb-primary); }
+    .btn-pp-icon:disabled { opacity: .6; cursor: default; }
+    .btn-pp-icon--on { border-color: var(--nb-primary); color: var(--nb-primary); background: #EFF6FF; }
 
     /* ── TABS ─────────────────────────────────────────────────── */
     .pp-tabs {
@@ -846,6 +852,11 @@ export class ProviderProfileComponent implements OnInit, OnDestroy {
   myRating  = signal(0);
   rating    = signal(false);
 
+  // Save / bookmark — customer adds this provider to their "Saved" list
+  // (visible on the customer dashboard).
+  isSaved       = signal(false);
+  savingBookmark = signal(false);
+
   categoryLabel = computed(() => {
     const cat = this.provider()?.category ?? '';
     return cat.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
@@ -899,6 +910,44 @@ export class ProviderProfileComponent implements OnInit, OnDestroy {
         this.loadReviews(id);
       },
       error: (e: any) => { this.rating.set(false); this.toast.error(e?.error?.message ?? 'Could not submit rating.'); },
+    });
+  }
+
+  // Save / unsave (bookmark) this provider. Customers only; guests are sent
+  // to login. The saved list lives on the customer dashboard.
+  toggleSave() {
+    if (!this.auth.isLoggedIn()) { this.router.navigate(['/auth/login']); return; }
+    if (this.auth.userRole() !== 'customer') { this.toast.error('Only customers can save providers.'); return; }
+    const id = this.provider()?._id;
+    if (!id || this.savingBookmark()) return;
+
+    const next = !this.isSaved();
+    this.savingBookmark.set(true);
+    this.isSaved.set(next);   // optimistic
+
+    const req$ = next
+      ? this.api.post<ApiResponse<any>>(`/providers/${id}/save`, {})
+      : this.api.delete<ApiResponse<any>>(`/providers/${id}/save`);
+
+    req$.subscribe({
+      next: () => {
+        this.savingBookmark.set(false);
+        this.toast.success(next ? 'Saved to your list.' : 'Removed from saved.');
+      },
+      error: (e: any) => {
+        this.savingBookmark.set(false);
+        this.isSaved.set(!next);   // revert on failure
+        this.toast.error(e?.error?.message ?? 'Could not update saved list.');
+      },
+    });
+  }
+
+  // Load whether the current customer has already saved this provider.
+  private loadSavedState(providerId: string) {
+    if (!this.auth.isLoggedIn() || this.auth.userRole() !== 'customer') return;
+    this.api.get<ApiResponse<{ saved: boolean }>>(`/providers/${providerId}/save`).subscribe({
+      next: res => this.isSaved.set(!!res.data?.saved),
+      error: () => {},
     });
   }
 
@@ -969,6 +1018,7 @@ export class ProviderProfileComponent implements OnInit, OnDestroy {
     });
     this.loadReviews(id);
     this.logView(id);
+    this.loadSavedState(id);
   }
 
   ngOnDestroy() { clearTimeout(this.loadTimeout); }

@@ -16,6 +16,11 @@ const toLocalPhone = (e164 = '') => {
   return digits.slice(-10);
 };
 
+// Whether phone OTP is required, per admin AppSettings. A single switch
+// (otpEnabled) gates verification for all roles. When it is off the
+// passwordless /register-direct path is allowed.
+const otpRequired = (settings) => !!settings.otpEnabled;
+
 // ── POST /api/auth/check-phone ─────────────────────────────────
 // Step 1 of login: check if a phone number has an account and whether
 // a password is set, so the frontend knows which flow to show next.
@@ -153,6 +158,78 @@ router.post('/firebase-verify', async (req, res, next) => {
       refreshToken,
     }, 'Phone verified.');
   } catch (e) { next(e); }
+});
+
+// ── POST /api/auth/register-direct ─────────────────────────────
+// Passwordless sign-up / first-time password set used ONLY when phone OTP is
+// disabled for the role (admin Settings → OTP Verification off). Mirrors the
+// find-or-create logic of firebase-verify but skips Firebase entirely.
+// Security: the server re-checks the OTP toggle so this can never be used to
+// bypass verification while OTP is on, and refuses numbers that already have a
+// password (those must sign in normally).
+router.post('/register-direct', async (req, res, next) => {
+  try {
+    const { phone: rawPhone, role, profile, password, reset } = req.body;
+    const phone = toLocalPhone(rawPhone || '');
+    if (!/^\d{10}$/.test(phone))        return fail(res, 'A valid 10-digit phone number is required.');
+    if (!password || password.length < 6) return fail(res, 'Password must be at least 6 characters.');
+
+    const newRole  = role === 'provider' ? 'provider' : 'customer';
+    const settings = await AppSettings.getSingleton();
+
+    // Hard gate — if OTP is on, this passwordless path is not allowed.
+    if (otpRequired(settings))
+      return fail(res, 'Phone verification is required for this number.', 403);
+
+    let user = await User.findOne({ phone }).select('+passwordHash');
+
+    // An existing password normally means "please sign in" — except for an
+    // explicit forgot-password reset, allowed here only because OTP is off
+    // (re-checked above), so there is no separate verification step.
+    if (user && user.hasPassword && !reset)
+      return fail(res, 'This number already has a password. Please sign in.', 409);
+
+    if (!user) {
+      if (newRole === 'provider' && !settings.registrationsEnabled)
+        return fail(res, 'New provider registrations are temporarily closed.', 403);
+
+      const name  = profile?.name?.trim()  || `User ${phone.slice(-4)}`;
+      const email = profile?.email?.trim() || `${phone}@phone.nearby`;
+      const city  = profile?.city?.trim()  || '';
+
+      user = await User.create({
+        name, email, phone,
+        passwordHash: password,
+        hasPassword:  true,
+        role: newRole,
+        location: { city, area: city, district: city },
+      });
+    } else {
+      // Existing account: first-time password set, or a forgot-password reset
+      // (reset=true) — apply the new password now (+ any profile updates).
+      if (profile?.name?.trim()  && user.name.startsWith('User '))        user.name = profile.name.trim();
+      if (profile?.email?.trim() && user.email.endsWith('@phone.nearby')) user.email = profile.email.trim();
+      if (profile?.city?.trim())                                          user.location.city = profile.city.trim();
+      user.passwordHash = password;
+      user.hasPassword  = true;
+      await user.save();
+    }
+
+    if (!user.isActive) return fail(res, 'Account suspended.', 403);
+
+    const { accessToken, refreshToken } = generateTokens(user._id);
+    await User.findByIdAndUpdate(user._id, { refreshToken });
+
+    const fresh = await User.findById(user._id).lean();
+    ok(res, {
+      user: { _id: fresh._id, name: fresh.name, email: fresh.email, role: fresh.role, avatar: fresh.avatar, location: fresh.location },
+      accessToken,
+      refreshToken,
+    }, 'Welcome to NearBy.');
+  } catch (e) {
+    if (e.code === 11000) return fail(res, 'An account with this number already exists.', 409);
+    next(e);
+  }
 });
 
 // ── POST /api/auth/refresh-token ───────────────────────────────

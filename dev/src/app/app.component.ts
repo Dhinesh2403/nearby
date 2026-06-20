@@ -6,11 +6,12 @@ import { ToastService }  from './core/services/toast.service';
 import { NotificationService } from './core/services/notification.service';
 import { ChatService }   from './core/services/chat.service';
 import { SettingsService } from './core/services/settings.service';
+import { ConfirmDialogComponent } from './shared/components/confirm-dialog.component';
 
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [RouterOutlet, RouterLink, RouterLinkActive, CommonModule],
+  imports: [RouterOutlet, RouterLink, RouterLinkActive, CommonModule, ConfirmDialogComponent],
   template: `
     <!-- NAVBAR -->
     <nav class="navbar navbar-expand-lg nb-navbar sticky-top">
@@ -59,14 +60,12 @@ import { SettingsService } from './core/services/settings.service';
               <a routerLink="/auth/login" class="btn-nb-primary btn btn-sm">Login</a>
             } @else {
               <!-- CHAT -->
-              @if (!isAdmin()) {
-                <a routerLink="/chats" class="bell-btn" aria-label="Messages" style="text-decoration:none">
-                  <i class="bi bi-chat-dots"></i>
-                  @if (chat.unreadTotal() > 0) {
-                    <span class="bell-badge">{{ chat.unreadTotal() > 9 ? '9+' : chat.unreadTotal() }}</span>
-                  }
-                </a>
-              }
+              <a routerLink="/chats" class="bell-btn" aria-label="Messages" style="text-decoration:none">
+                <i class="bi bi-chat-dots"></i>
+                @if (chat.unreadTotal() > 0) {
+                  <span class="bell-badge">{{ chat.unreadTotal() > 9 ? '9+' : chat.unreadTotal() }}</span>
+                }
+              </a>
 
               <!-- NOTIFICATION BELL -->
               <div class="dropdown" [class.show]="bellOpen()" (click)="$event.stopPropagation()">
@@ -93,7 +92,7 @@ import { SettingsService } from './core/services/settings.service';
                     @for (n of notif.notifications(); track n._id) {
                       <li>
                         <a class="notif-item" [class.unread]="!n.isRead"
-                           [routerLink]="n.link || null" (click)="openNotif()">
+                           style="cursor:pointer" (click)="openNotif(n)">
                           <div class="notif-dot" [class.on]="!n.isRead"></div>
                           <div class="flex-grow-1">
                             <p class="notif-title">{{ n.title }}</p>
@@ -155,8 +154,8 @@ import { SettingsService } from './core/services/settings.service';
       <div class="container">
         <div class="row g-4 mb-3">
           <div class="col-md-4">
-              <img src="assets/brand/logo.svg" alt="NearBy Pro" height="42"
-                 style="filter:brightness(0) invert(1); margin-bottom:.5rem; display:block" />
+              <img src="assets/brand/logo-white.svg" alt="NearBy Pro" height="42"
+                 style="margin-bottom:.5rem; display:block" />
             <p style="color:rgba(255,255,255,.6);font-size:.875rem">
               Connecting your city, one service at a time.
             </p>
@@ -179,13 +178,17 @@ import { SettingsService } from './core/services/settings.service';
           <div class="col-md-3">
             <p class="footer-heading">Contact</p>
             <div class="footer-links">
-              <span>hello&#64;getnearby.in</span>
-              <span>Chennai, India</span>
+              <span>admin&#64;nearbypro.online</span>
+              <span>Coimbatore, India</span>
             </div>
           </div>
         </div>
-        <div style="border-top:1px solid rgba(255,255,255,.1);padding-top:1rem;text-align:center;color:rgba(255,255,255,.4);font-size:.8rem">
-          © 2026 NearBy. All rights reserved.
+        <div class="footer-bottom">
+          <span>© 2026 NearBy. All rights reserved.</span>
+          <span class="footer-legal">
+            <a routerLink="/terms">Terms &amp; Conditions</a>
+            <a routerLink="/privacy">Privacy Policy</a>
+          </span>
         </div>
       </div>
     </footer>
@@ -204,6 +207,9 @@ import { SettingsService } from './core/services/settings.service';
         </div>
       }
     </div>
+
+    <!-- GLOBAL MODAL DIALOGS (confirm / prompt) -->
+    <app-confirm-dialog />
   `,
   styles: [`
     .bell-btn { position:relative;background:var(--nb-surface-2);border:1px solid var(--nb-border);width:40px;height:40px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:1.05rem;color:var(--nb-text);cursor:pointer;transition:background .15s; }
@@ -234,6 +240,11 @@ import { SettingsService } from './core/services/settings.service';
     .footer-links { display:flex;flex-direction:column;gap:.35rem; }
     .footer-links a, .footer-links span { color:rgba(255,255,255,.65);font-size:.875rem;text-decoration:none;transition:color .15s; }
     .footer-links a:hover { color:var(--nb-accent); }
+    .footer-bottom { border-top:1px solid rgba(255,255,255,.1);padding-top:1rem;color:rgba(255,255,255,.4);font-size:.8rem;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:.5rem; }
+    .footer-legal { display:flex;gap:1.25rem; }
+    .footer-legal a { color:rgba(255,255,255,.55);text-decoration:none;transition:color .15s; }
+    .footer-legal a:hover { color:var(--nb-accent); }
+    @media (max-width:576px) { .footer-bottom { justify-content:center;text-align:center; } }
   `]
 })
 export class AppComponent {
@@ -282,10 +293,12 @@ export class AppComponent {
     if (opening) this.notif.load();
   }
 
-  // Clicking a notification: close the panel and mark everything read
-  openNotif() {
+  // Clicking a notification: close the panel, mark read, and follow its link
+  // (navigateByUrl preserves query strings like /admin?tab=complaints).
+  openNotif(n?: { link?: string }) {
     this.bellOpen.set(false);
     this.notif.markAllRead();
+    if (n?.link) this.router.navigateByUrl(n.link);
   }
 
   logout() {

@@ -30,10 +30,10 @@ export const routes: Routes = [
   { path: 'dashboard/provider',   canActivate: [roleGuard('provider')],
     loadComponent: () => import('./features/dashboard/provider-dashboard.component').then(m => m.ProviderDashboardComponent) },
 
-{ path: 'chats',                canActivate: [roleGuard('customer', 'provider')],
+{ path: 'chats',                canActivate: [roleGuard('customer', 'provider', 'admin')],
     loadComponent: () => import('./features/chat/chats-list.component').then(m => m.ChatsListComponent) },
 
-  { path: 'chat/:conversationId', canActivate: [roleGuard('customer', 'provider')],
+  { path: 'chat/:conversationId', canActivate: [roleGuard('customer', 'provider', 'admin')],
     loadComponent: () => import('./features/chat/chat.component').then(m => m.ChatComponent) },
 
   { path: 'complaints/new',       canActivate: [roleGuard('customer', 'provider')],
@@ -45,6 +45,12 @@ export const routes: Routes = [
 
   { path: 'admin',                canActivate: [authGuard, adminGuard],
     loadComponent: () => import('./features/admin/admin-dashboard.component').then(m => m.AdminDashboardComponent) },
+
+  { path: 'terms',
+    loadComponent: () => import('./features/legal/terms.component').then(m => m.TermsComponent) },
+
+  { path: 'privacy',
+    loadComponent: () => import('./features/legal/privacy.component').then(m => m.PrivacyComponent) },
 
   { path: 'auth',      redirectTo: 'auth/login',           pathMatch: 'full' },
   { path: 'dashboard', redirectTo: 'dashboard/customer',   pathMatch: 'full' },

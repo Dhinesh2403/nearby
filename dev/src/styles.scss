@@ -77,6 +77,33 @@ a:hover { color: var(--nb-primary); }
 .nb-navbar .nav-link { color:var(--nb-text-muted)!important; font-weight:500; font-size:.875rem; padding:.5rem 1rem!important; border-radius:var(--radius-sm); transition:all .2s; }
 .nb-navbar .nav-link:hover, .nb-navbar .nav-link.active { color:var(--nb-primary)!important; background:var(--nb-surface-2); }
 
+/* Mobile navbar (collapses below lg/992px). The bar is fixed-height, so the
+   expanded menu must render as its own solid panel below the bar — otherwise
+   it overlaps the page content behind it. */
+@media (max-width: 991.98px) {
+  .nb-navbar .navbar-collapse {
+    position: absolute;
+    top: var(--nb-navbar-h);
+    left: 0;
+    right: 0;
+    background: var(--nb-surface);
+    border-bottom: 1px solid var(--nb-border);
+    box-shadow: var(--shadow-md);
+    padding: 12px 16px 16px;
+    /* overflow must stay visible so the user/notification dropdowns inside
+       can pop out on top instead of being clipped by the panel */
+    overflow: visible;
+    z-index: 1029;
+  }
+  .nb-navbar .navbar-collapse .navbar-nav { margin-bottom: 12px; }
+  .nb-navbar .navbar-collapse .nav-link { padding:.65rem 1rem!important; font-size:.95rem; }
+  /* Stack the action buttons full-width below the links */
+  .nb-navbar .navbar-collapse > .d-flex { flex-wrap: wrap; }
+  /* Open dropdowns sit above the panel and the page content behind it */
+  .nb-navbar .navbar-collapse .dropdown-menu.show,
+  .nb-navbar .navbar-collapse .notif-menu.show { z-index: 1045; }
+}
+
 /* Buttons */
 @keyframes buttonClick {
   0% { transform: scale(1); }
@@ -171,6 +198,33 @@ a:hover { color: var(--nb-primary); }
 .fade-up-1 { animation-delay:.1s; opacity:0; }
 .fade-up-2 { animation-delay:.2s; opacity:0; }
 .fade-up-3 { animation-delay:.3s; opacity:0; }
+
+/* Native <select> — custom caret so it renders consistently across mobile browsers */
+select.nb-input {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 16 16' fill='none' stroke='%2378716C' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='4 6 8 10 12 6'%3E%3C/polyline%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.85rem center;
+  padding-right: 2.4rem;
+  cursor: pointer;
+}
+
+/* Mobile form controls — 16px font stops iOS zoom-on-focus; taller hit targets */
+@media (max-width: 576px) {
+  .nb-input,
+  input.nb-input,
+  select.nb-input,
+  textarea.nb-input,
+  .form-control,
+  .form-select {
+    font-size: 16px;
+    min-height: 46px;
+  }
+  textarea.nb-input { min-height: auto; }
+  .btn, .btn-nb-primary, .btn-nb-accent, .btn-nb-outline { min-height: 44px; }
+}
 
 /* Scrollbar */
 ::-webkit-scrollbar { width:6px; }

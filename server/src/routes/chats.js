@@ -2,12 +2,18 @@
 // One conversation per customer ↔ provider pair, persisted messages,
 // unread counts, and a notification on each new conversation turn.
 const router = require('express').Router();
-const { Conversation, Message, Provider } = require('../models');
+const { Conversation, Message, Provider, User } = require('../models');
 const { ok, fail } = require('../utils/helpers');
 const { protect }  = require('../middleware/auth');
 
 // Display name of the "other" participant for a conversation, from my POV
 const otherNameOf = (conv, meId) => {
+  // Support chats: the user sees "NearBy Support", the admin sees the user's name.
+  if (conv.kind === 'support') {
+    const iAmAdmin = conv.providerUserId?._id?.toString() === meId
+                  || conv.providerUserId?.toString() === meId;
+    return iAmAdmin ? (conv.customerId?.name || 'User') : 'NearBy Support';
+  }
   const iAmCustomer = conv.customerId?._id?.toString() === meId
                    || conv.customerId?.toString() === meId;
   if (iAmCustomer) return conv.providerId?.businessName || 'Provider';
@@ -89,6 +95,32 @@ router.post('/open', protect, async (req, res, next) => {
     if (error) return fail(res, error, status || 400);
     const populated = await Conversation.findById(conv._id)
       .populate('customerId', 'name').populate('providerId', 'businessName');
+    ok(res, { _id: conv._id, otherName: otherNameOf(populated, req.user._id.toString()) });
+  } catch (e) { next(e); }
+});
+
+// POST /api/chats/support — open (find-or-create) a support conversation.
+// A customer/provider reaches the platform admin; an admin reaches a chosen user.
+router.post('/support', protect, async (req, res, next) => {
+  try {
+    let targetId, adminId;
+    if (req.user.role === 'admin') {
+      targetId = req.body.userId;
+      if (!targetId) return fail(res, 'userId is required.');
+      adminId = req.user._id;
+    } else {
+      const admin = await User.findOne({ role: 'admin' }).select('_id');
+      if (!admin) return fail(res, 'No admin is available right now.', 503);
+      targetId = req.user._id;
+      adminId  = admin._id;
+    }
+    if (targetId.toString() === adminId.toString())
+      return fail(res, 'Cannot open a support chat with yourself.');
+
+    const filter = { customerId: targetId, providerUserId: adminId, kind: 'support' };
+    let conv = await Conversation.findOne(filter);
+    if (!conv) conv = await Conversation.create(filter);
+    const populated = await Conversation.findById(conv._id).populate('customerId', 'name');
     ok(res, { _id: conv._id, otherName: otherNameOf(populated, req.user._id.toString()) });
   } catch (e) { next(e); }
 });

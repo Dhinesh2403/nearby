@@ -1,13 +1,15 @@
 // src/app/features/admin/admin-dashboard.component.ts
-import { Component, OnInit, signal } from '@angular/core';
+import { Component, OnInit, signal, computed } from '@angular/core';
 import { CommonModule }  from '@angular/common';
 import { FormsModule }   from '@angular/forms';
-import { RouterLink }    from '@angular/router';
+import { RouterLink, Router, ActivatedRoute } from '@angular/router';
 import { ApiService, ApiResponse } from '../../core/services/api.service';
 import { ToastService }  from '../../core/services/toast.service';
+import { ChatService }   from '../../core/services/chat.service';
+import { DialogService } from '../../core/services/dialog.service';
 
 interface Settings {
-  otpEnabled: boolean; otpCustomerEnabled: boolean; otpProviderEnabled: boolean;
+  otpEnabled: boolean;
   adsEnabled: boolean; rewardedAdsEnabled: boolean; whoVisitedEnabled: boolean;
   adsRequiredCount: number; registrationsEnabled: boolean; complaintsEnabled: boolean;
   featuredCategories: string[]; bannerAdUnitId: string; rewardedAdUnitId: string;
@@ -81,11 +83,14 @@ interface Settings {
                                 [class.nb-badge-danger]="p.status==='suspended'"
                                 [class.nb-badge-warning]="p.status==='pending'">{{ p.status }}</span></td>
                       <td>
-                        @if (p.status==='suspended') {
-                          <button class="aact-btn approve" style="font-size:.72rem;padding:4px 10px" (click)="unbanProvider(p)">Reinstate</button>
-                        } @else {
-                          <button class="aact-btn reject" style="font-size:.72rem;padding:4px 10px" (click)="banProvider(p)">Suspend</button>
-                        }
+                        <div class="d-flex gap-2 flex-wrap">
+                          <button class="aact-btn" style="font-size:.72rem;padding:4px 10px" (click)="chatUser(p.user?._id)"><i class="bi bi-chat-dots me-1"></i>Chat</button>
+                          @if (p.status==='suspended') {
+                            <button class="aact-btn approve" style="font-size:.72rem;padding:4px 10px" (click)="unbanProvider(p)">Reactivate</button>
+                          } @else {
+                            <button class="aact-btn reject" style="font-size:.72rem;padding:4px 10px" (click)="banProvider(p)">Deactivate</button>
+                          }
+                        </div>
                       </td>
                     </tr>
                   }
@@ -116,7 +121,16 @@ interface Settings {
                       <td>{{ c.activity?.profileViews }}</td>
                       <td class="text-muted-nb" style="font-size:.8rem">{{ c.createdAt | date:'dd MMM yy' }}</td>
                       <td><span class="nb-badge" [class.nb-badge-success]="c.isActive" [class.nb-badge-danger]="!c.isActive">{{ c.isActive ? 'Active' : 'Banned' }}</span></td>
-                      <td>@if (c.isActive) { <button class="aact-btn reject" style="font-size:.72rem;padding:4px 10px" (click)="banUser(c._id, c.name)">Ban</button> }</td>
+                      <td>
+                        <div class="d-flex gap-2 flex-wrap">
+                          <button class="aact-btn" style="font-size:.72rem;padding:4px 10px" (click)="chatUser(c._id)"><i class="bi bi-chat-dots me-1"></i>Chat</button>
+                          @if (c.isActive) {
+                            <button class="aact-btn reject" style="font-size:.72rem;padding:4px 10px" (click)="banUser(c._id, c.name)">Deactivate</button>
+                          } @else {
+                            <button class="aact-btn approve" style="font-size:.72rem;padding:4px 10px" (click)="reactivateUser(c._id, c.name)">Reactivate</button>
+                          }
+                        </div>
+                      </td>
                     </tr>
                   }
                 </tbody>
@@ -129,20 +143,87 @@ interface Settings {
       <!-- ── COMPLAINTS (5.7) ─────────────────────────────────── -->
       @if (tab()==='complaints') {
         <div class="atbl-card">
-          <div class="atbl-hdr"><h6 class="atbl-title">Open Complaints</h6>
-            <span class="nb-badge nb-badge-danger">{{ openComplaints().length }} open</span></div>
+          <div class="atbl-hdr">
+            <h6 class="atbl-title">Complaints</h6>
+            <span class="nb-badge" [class.nb-badge-danger]="complaintFilter()==='open'" [class.nb-badge-success]="complaintFilter()==='resolved'">
+              {{ visibleComplaints().length }} {{ complaintFilter() }}
+            </span>
+          </div>
+
+          <!-- Filter: switch between open and resolved complaints -->
+          <div class="d-flex gap-2 mb-3 flex-wrap">
+            <button class="fcat-chip" [class.on]="complaintFilter()==='open'" (click)="complaintFilter.set('open')">
+              Open <span class="text-muted-nb">({{ openComplaints().length }})</span>
+            </button>
+            <button class="fcat-chip" [class.on]="complaintFilter()==='resolved'" (click)="complaintFilter.set('resolved')">
+              Resolved <span class="text-muted-nb">({{ resolvedComplaints().length }})</span>
+            </button>
+          </div>
+
           @if (loadingTab()) { <div class="nb-spinner-wrap" style="min-height:160px"><div class="nb-spinner"></div></div> }
-          @else if (openComplaints().length===0) { <p class="text-muted-nb text-center py-4">✅ No open complaints</p> }
+          @else if (visibleComplaints().length===0) {
+            <p class="text-muted-nb text-center py-4">
+              {{ complaintFilter()==='open' ? 'No open complaints' : 'No resolved complaints' }}
+            </p>
+          }
           @else {
-            @for (c of openComplaints(); track c._id) {
+            @for (c of visibleComplaints(); track c._id) {
               <div class="arow">
-                <div class="arow-av" style="background:#DC2626">!</div>
+                <div class="arow-av" [style.background]="c.status==='resolved' ? '#059669' : '#DC2626'">
+                  <i class="bi" [class.bi-check-lg]="c.status==='resolved'" [class.bi-exclamation]="c.status!=='resolved'"></i>
+                </div>
                 <div class="flex-grow-1">
                   <p class="arow-name">{{ c.type | titlecase }} — by {{ c.raisedBy?.name ?? '—' }}</p>
                   <p class="arow-meta">Against: {{ c.against?.name ?? '—' }} · {{ c.createdAt | date:'dd MMM' }}</p>
                   <p class="arow-desc">"{{ c.description }}"</p>
+                  @if (c.evidence?.length) {
+                    <div class="evid-strip">
+                      @for (img of c.evidence; track img) {
+                        <img class="evid-thumb" [src]="img" alt="evidence" (click)="lightbox.set(img)" />
+                      }
+                    </div>
+                  }
+                  @if (c.status==='resolved' && c.resolution) {
+                    <p class="arow-meta" style="color:#059669"><i class="bi bi-check-circle me-1"></i>Resolved {{ c.resolvedAt | date:'dd MMM' }} — "{{ c.resolution }}"</p>
+                  }
                 </div>
-                <button class="aact-btn approve" style="font-size:.72rem" (click)="resolveComplaint(c._id)">Resolve</button>
+                <div class="d-flex gap-2 align-items-start">
+                  <button class="aact-btn" style="font-size:.72rem" (click)="chatComplaint(c)"><i class="bi bi-chat-dots me-1"></i>Chat</button>
+                  @if (c.status!=='resolved') {
+                    <button class="aact-btn approve" style="font-size:.72rem" (click)="resolveComplaint(c._id)">Resolve</button>
+                  }
+                </div>
+              </div>
+            }
+          }
+        </div>
+      }
+
+      <!-- ── CATEGORY REQUESTS ────────────────────────────────── -->
+      @if (tab()==='category-requests') {
+        <div class="atbl-card">
+          <div class="atbl-hdr"><h6 class="atbl-title">Category Requests</h6>
+            <span class="nb-badge nb-badge-warning">{{ pendingCatRequests() }} pending</span></div>
+          @if (loadingTab()) { <div class="nb-spinner-wrap" style="min-height:160px"><div class="nb-spinner"></div></div> }
+          @else if (catRequests().length===0) { <p class="text-muted-nb text-center py-4">No category requests yet.</p> }
+          @else {
+            @for (r of catRequests(); track r._id) {
+              <div class="arow">
+                <div class="arow-av" style="background:#7C3AED"><i class="bi bi-tag-fill"></i></div>
+                <div class="flex-grow-1">
+                  <p class="arow-name">{{ r.name }}
+                    @if (r.status !== 'pending') { <span class="nb-badge" [class.nb-badge-success]="r.status==='approved'" [class.nb-badge-danger]="r.status==='rejected'">{{ r.status }}</span> }
+                  </p>
+                  <p class="arow-meta">{{ r.requestedBy?.name ?? '�' }}@if (r.providerId?.businessName) { � {{ r.providerId.businessName }}}@if (r.requestedBy?.phone) { � {{ r.requestedBy.phone }}} � {{ r.createdAt | date:'dd MMM yyyy' }}</p>
+                  @if (r.note) { <p class="arow-desc">"{{ r.note }}"</p> }
+                  @if (r.status === 'pending') { <p class="arow-desc" style="color:var(--nb-text-muted)">Approving publishes this category and moves the provider's listing onto it.</p> }
+                </div>
+                @if (r.status === 'pending') {
+                  <div class="d-flex flex-column gap-1">
+                    <button class="aact-btn approve" style="font-size:.72rem" (click)="reviewCategoryRequest(r._id, 'approved')">Approve</button>
+                    <button class="aact-btn reject" style="font-size:.72rem" (click)="reviewCategoryRequest(r._id, 'rejected')">Reject</button>
+                  </div>
+                }
               </div>
             }
           }
@@ -156,12 +237,8 @@ interface Settings {
             <div class="col-lg-7">
               <div class="atbl-card mb-3">
                 <h6 class="atbl-title mb-3">Feature Toggles</h6>
-                <div class="set-row"><div><p class="set-t">OTP Verification</p><p class="set-d">Master switch for phone OTP</p></div>
+                <div class="set-row"><div><p class="set-t">OTP Verification</p><p class="set-d">Require phone OTP at sign-up / login</p></div>
                   <label class="sw"><input type="checkbox" [(ngModel)]="s.otpEnabled"><span></span></label></div>
-                <div class="set-row"><div><p class="set-t">— Customer OTP</p></div>
-                  <label class="sw"><input type="checkbox" [(ngModel)]="s.otpCustomerEnabled"><span></span></label></div>
-                <div class="set-row"><div><p class="set-t">— Provider OTP</p></div>
-                  <label class="sw"><input type="checkbox" [(ngModel)]="s.otpProviderEnabled"><span></span></label></div>
                 <div class="set-row"><div><p class="set-t">AdMob Ads</p><p class="set-d">Banner + rewarded master switch</p></div>
                   <label class="sw"><input type="checkbox" [(ngModel)]="s.adsEnabled"><span></span></label></div>
                 <div class="set-row"><div><p class="set-t">Rewarded Ads</p></div>
@@ -181,8 +258,8 @@ interface Settings {
               <div class="atbl-card">
                 <h6 class="atbl-title mb-3">Featured Categories (homepage)</h6>
                 <div class="d-flex flex-wrap gap-2">
-                  @for (cat of allCategories; track cat) {
-                    <button class="fcat-chip" [class.on]="s.featuredCategories.includes(cat)" (click)="toggleFeatured(cat)">{{ cat }}</button>
+                  @for (cat of allCategories(); track cat.id) {
+                    <button class="fcat-chip" [class.on]="s.featuredCategories.includes(cat.id)" (click)="toggleFeatured(cat.id)">{{ cat.label }}</button>
                   }
                 </div>
               </div>
@@ -233,8 +310,20 @@ interface Settings {
         </div>
       }
     </div>
+
+    <!-- Evidence image lightbox -->
+    @if (lightbox()) {
+      <div class="evid-lightbox" (click)="lightbox.set(null)">
+        <img [src]="lightbox()" alt="evidence" />
+      </div>
+    }
   `,
   styles: [`
+    .evid-strip { display:flex; gap:8px; flex-wrap:wrap; margin:8px 0 2px; }
+    .evid-thumb { width:56px; height:56px; object-fit:cover; border-radius:var(--radius-sm); border:1px solid var(--nb-border); cursor:pointer; transition:transform .12s; }
+    .evid-thumb:hover { transform:scale(1.05); }
+    .evid-lightbox { position:fixed; inset:0; background:rgba(0,0,0,.85); z-index:11000; display:flex; align-items:center; justify-content:center; padding:2rem; cursor:zoom-out; }
+    .evid-lightbox img { max-width:92vw; max-height:92vh; border-radius:12px; }
     .kpi-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(190px,1fr)); gap:12px; }
     .kpi-card { background:#fff; border:1px solid var(--nb-border); border-radius:var(--radius-lg); padding:1.25rem; display:flex; align-items:center; gap:14px; }
     .kpi-icon { width:48px; height:48px; border-radius:var(--radius-md); display:flex; align-items:center; justify-content:center; font-size:1.3rem; flex-shrink:0; }
@@ -255,6 +344,7 @@ interface Settings {
     .aact-btn  { border:none; border-radius:var(--radius-sm); padding:6px 14px; font-family:var(--font-display); font-size:.78rem; font-weight:700; cursor:pointer; transition:all .15s; display:flex; align-items:center; white-space:nowrap; }
     .aact-btn.approve { background:#D1FAE5; color:#065f46; }
     .aact-btn.reject  { background:#FEE2E2; color:#991b1b; }
+    .aact-btn:not(.approve):not(.reject) { background:#EFF6FF; color:#1e4d8c; }
     .atbl { width:100%; border-collapse:collapse; font-size:.875rem; }
     .atbl th { font-family:var(--font-display); font-size:.72rem; font-weight:700; text-transform:uppercase; letter-spacing:.05em; color:var(--nb-text-muted); padding:10px 12px; text-align:left; border-bottom:2px solid var(--nb-border); }
     .atbl td { padding:10px 12px; border-bottom:1px solid var(--nb-border); vertical-align:middle; }
@@ -283,22 +373,68 @@ export class AdminDashboardComponent implements OnInit {
   kpis           = signal<any[]>([]);
   providers      = signal<any[]>([]);
   customers      = signal<any[]>([]);
-  openComplaints = signal<any[]>([]);
+  complaints         = signal<any[]>([]);
+  complaintFilter    = signal<'open' | 'resolved'>('open');
+  openComplaints     = computed(() => this.complaints().filter(c => c.status === 'open'));
+  resolvedComplaints = computed(() => this.complaints().filter(c => c.status === 'resolved'));
+  visibleComplaints  = computed(() => this.complaintFilter() === 'open' ? this.openComplaints() : this.resolvedComplaints());
+  catRequests    = signal<any[]>([]);
   logs           = signal<any[]>([]);
   settings       = signal<Settings | null>(null);
   savingSettings = signal(false);
+  lightbox       = signal<string | null>(null);
 
-  allCategories = ['home_services','education','food','wellness','events'];
+  // Full canonical category list (id + label), loaded from /api/categories.
+  // Falls back to a minimal set if the request fails.
+  allCategories = signal<{ id: string; label: string }[]>([
+    { id: 'home_services', label: 'Home Services' },
+    { id: 'education',     label: 'Education' },
+    { id: 'food',          label: 'Food' },
+    { id: 'wellness',      label: 'Wellness' },
+    { id: 'events',        label: 'Events' },
+  ]);
 
   tabs = [
     { id:'providers',  label:'Providers',  icon:'bi-briefcase',            tid:'providers-tab' },
     { id:'customers',  label:'Customers',  icon:'bi-people',               tid:'customers-tab' },
     { id:'complaints', label:'Complaints', icon:'bi-exclamation-triangle', tid:'complaints-tab' },
+    { id:'category-requests', label:'Category Requests', icon:'bi-tags', tid:'category-requests-tab' },
     { id:'settings',   label:'Settings',   icon:'bi-sliders',              tid:'settings-tab' },
     { id:'logs',       label:'Activity Log', icon:'bi-clock-history',      tid:'logs-tab' },
   ];
 
-  constructor(private api: ApiService, private toast: ToastService) {}
+  constructor(
+    private api: ApiService,
+    private toast: ToastService,
+    private chat: ChatService,
+    private router: Router,
+    private dialog: DialogService,
+    private route: ActivatedRoute,
+  ) {}
+
+  // Open a support chat with any user (provider/customer) from the admin panel.
+  chatUser(userId: string, draft = '') {
+    if (!userId) { this.toast.error('This account has no linked user.'); return; }
+    this.chat.openSupport(userId).subscribe({
+      next: c => this.router.navigate(['/chat', c._id], draft ? { queryParams: { draft } } : {}),
+      error: () => this.toast.error('Could not open chat.'),
+    });
+  }
+
+  // Open a support chat with the user who raised a complaint, pre-filled with its reference + details.
+  chatComplaint(c: any) {
+    this.chat.openComplaintChat(c._id).subscribe({
+      next: conv => {
+        const ref   = 'CMP-' + String(c._id).slice(-6).toUpperCase();
+        const draft =
+          `Hello ${c.raisedBy?.name ?? ''}, NearBy Support here regarding your complaint ` +
+          `${ref} (${c.type}) against ${c.against?.name ?? 'the provider'}: "${c.description}". ` +
+          `Could you share more details so we can help resolve this?`;
+        this.router.navigate(['/chat', conv._id], { queryParams: { draft } });
+      },
+      error: () => this.toast.error('Could not open chat.'),
+    });
+  }
 
   ngOnInit() {
     this.api.get<any>('/admin/dashboard').subscribe({
@@ -314,7 +450,26 @@ export class AdminDashboardComponent implements OnInit {
       },
       error: () => this.kpis.set([]),
     });
-    this.loadTab('providers');
+    // Load the full category list for the Featured Categories chips.
+    this.api.get<any>('/categories').subscribe({
+      next: res => {
+        const list = (res.data ?? []).map((c: any) => ({ id: c.id, label: c.label }));
+        if (list.length) this.allCategories.set(list);
+      },
+      error: () => { /* keep fallback list */ },
+    });
+
+    // Honour ?tab=… deep links (e.g. the "New complaint filed" notification → complaints).
+    // Subscribing handles both first load and clicks while already on /admin.
+    this.route.queryParamMap.subscribe(params => {
+      const requested = params.get('tab');
+      const valid = this.tabs.some(t => t.id === requested);
+      const target = valid ? requested! : 'providers';
+      if (target !== this.tab() || !this.kpis().length) {
+        this.tab.set(target);
+        this.loadTab(target);
+      }
+    });
   }
 
   loadTab(id: string) {
@@ -325,7 +480,9 @@ export class AdminDashboardComponent implements OnInit {
     } else if (id === 'customers') {
       this.api.get<any>('/admin/customers').subscribe({ next: r => { this.customers.set(r.data ?? []); done(); }, error: done });
     } else if (id === 'complaints') {
-      this.api.get<any>('/complaints').subscribe({ next: r => { this.openComplaints.set((r.data ?? []).filter((c: any) => c.status === 'open')); done(); }, error: done });
+      this.api.get<any>('/complaints').subscribe({ next: r => { this.complaints.set(r.data ?? []); done(); }, error: done });
+    } else if (id === 'category-requests') {
+      this.api.get<any>('/categories/requests').subscribe({ next: r => { this.catRequests.set(r.data ?? []); done(); }, error: done });
     } else if (id === 'settings') {
       this.api.get<ApiResponse<Settings>>('/admin/settings').subscribe({ next: r => { this.settings.set(r.data); done(); }, error: done });
     } else if (id === 'logs') {
@@ -333,35 +490,66 @@ export class AdminDashboardComponent implements OnInit {
     } else { done(); }
   }
 
-  banProvider(p: any) {
-    const reason = prompt(`Suspend "${p.businessName}"? Optional reason (shown on their listing):`);
+  async banProvider(p: any) {
+    const reason = await this.dialog.prompt(
+      `"${p.businessName}" will lose their listing and can no longer log in.`,
+      { title: 'Deactivate Provider', placeholder: 'Optional reason (shown to them)', confirmText: 'Deactivate', danger: true },
+    );
     if (reason === null) return;
     this.api.put<any>(`/admin/providers/${p._id}/ban`, { reason }).subscribe({
-      next: () => { this.toast.success(`${p.businessName} suspended.`); this.loadTab('providers'); },
-      error: () => this.toast.error('Could not suspend provider.'),
+      next: () => { this.toast.success(`${p.businessName} deactivated.`); this.loadTab('providers'); },
+      error: () => this.toast.error('Could not deactivate provider.'),
     });
   }
 
   unbanProvider(p: any) {
     this.api.put<any>(`/admin/providers/${p._id}/unban`, {}).subscribe({
-      next: () => { this.toast.success(`${p.businessName} reinstated.`); this.loadTab('providers'); },
-      error: () => this.toast.error('Could not reinstate provider.'),
+      next: () => { this.toast.success(`${p.businessName} reactivated.`); this.loadTab('providers'); },
+      error: () => this.toast.error('Could not reactivate provider.'),
     });
   }
 
-  banUser(id: string, name: string) {
-    if (!confirm(`Ban ${name}?`)) return;
+  async banUser(id: string, name: string) {
+    const ok = await this.dialog.confirm(
+      `${name} will be unable to log in until reactivated.`,
+      { title: 'Deactivate Customer', confirmText: 'Deactivate', danger: true },
+    );
+    if (!ok) return;
     this.api.put<any>(`/admin/users/${id}/ban`, {}).subscribe({
-      next: () => { this.toast.success(`${name} banned.`); this.customers.update(l => l.map(u => u._id === id ? { ...u, isActive: false } : u)); },
-      error: () => this.toast.error('Could not ban user.'),
+      next: () => { this.toast.success(`${name} deactivated.`); this.customers.update(l => l.map(u => u._id === id ? { ...u, isActive: false } : u)); },
+      error: () => this.toast.error('Could not deactivate user.'),
     });
   }
 
-  resolveComplaint(id: string) {
-    const resolution = prompt('Resolution note:') ?? 'Resolved by admin';
+  reactivateUser(id: string, name: string) {
+    this.api.put<any>(`/admin/users/${id}/unban`, {}).subscribe({
+      next: () => { this.toast.success(`${name} reactivated.`); this.customers.update(l => l.map(u => u._id === id ? { ...u, isActive: true } : u)); },
+      error: () => this.toast.error('Could not reactivate user.'),
+    });
+  }
+
+  async resolveComplaint(id: string) {
+    const note = await this.dialog.prompt(
+      'Add a note describing how this complaint was resolved.',
+      { title: 'Resolve Complaint', placeholder: 'Resolution note', confirmText: 'Resolve', multiline: true },
+    );
+    if (note === null) return;
+    const resolution = note.trim() || 'Resolved by admin';
     this.api.put<any>(`/complaints/${id}/resolve`, { resolution }).subscribe({
-      next: () => { this.toast.success('Complaint resolved.'); this.openComplaints.update(l => l.filter(c => c._id !== id)); },
+      next: () => { this.toast.success('Complaint resolved.'); this.complaints.update(l => l.map(c => c._id === id ? { ...c, status: 'resolved', resolution, resolvedAt: new Date() } : c)); this.complaintFilter.set('resolved'); },
       error: () => this.toast.error('Could not resolve complaint.'),
+    });
+  }
+
+  pendingCatRequests() { return this.catRequests().filter(r => r.status === 'pending').length; }
+
+  reviewCategoryRequest(id: string, status: 'approved' | 'rejected') {
+    this.api.put<any>(`/categories/requests/${id}`, { status }).subscribe({
+      next: () => {
+        this.toast.success(`Request ${status}.`);
+        this.catRequests.update(l => l.map(r => r._id === id ? { ...r, status } : r));
+      },
+      error: () => this.toast.error('Could not update request.'),
     });
   }
 

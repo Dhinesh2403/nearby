@@ -7,6 +7,7 @@ import { AuthService }   from '../../core/auth/auth.service';
 import { SocketService } from '../../core/services/api.service';
 import { ChatService }   from '../../core/services/chat.service';
 import { UploadService } from '../../core/services/upload.service';
+import { ToastService }  from '../../core/services/toast.service';
 import { Subscription }  from 'rxjs';
 
 interface Msg { id:string; senderId:string; senderName:string; text:string; image?:string; ts:Date; mine:boolean; seen?:boolean; }
@@ -160,6 +161,7 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
     private chat:  ChatService,
     private socket: SocketService,
     private uploadSvc: UploadService,
+    private toast: ToastService,
   ) {}
 
   private get myId() { return this.auth.currentUser()?._id ?? ''; }
@@ -167,6 +169,9 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
   ngOnInit() {
     this.convId   = this.route.snapshot.paramMap.get('conversationId') ?? '';
     this.backLink = '/chats';
+    // A draft (e.g. opened from the admin panel about a complaint) pre-fills the composer.
+    const draft = this.route.snapshot.queryParamMap.get('draft');
+    if (draft) this.newMsg = draft;
     this.chat.enterConversation(this.convId);   // suppress toast/badge while viewing
     this.reload(true);
 
@@ -216,7 +221,7 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
     const el = e.target as HTMLInputElement;
     const f = el.files?.[0];
     if (!f) return;
-    if (f.size > 5 * 1024 * 1024) { alert('Image is over 5 MB.'); el.value = ''; return; }
+    if (f.size > 5 * 1024 * 1024) { this.toast.error('Image is over 5 MB.'); el.value = ''; return; }
     el.value = '';
     this.uploadingImg.set(true);
     this.uploadSvc.uploadImage(f, 'provider', 'Nearby/chats').subscribe({
@@ -225,7 +230,7 @@ export class ChatComponent implements OnInit, OnDestroy, AfterViewChecked {
         this.uploadingImg.set(false);
       },
       error: () => {
-        alert('Image upload failed. Please try again.');
+        this.toast.error('Image upload failed. Please try again.');
         this.uploadingImg.set(false);
       },
     });

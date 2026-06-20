@@ -47,20 +47,14 @@ const ProviderSchema = new mongoose.Schema({
   businessName: { type: String, required: true, trim: true },
   tagline:      { type: String, default: '', maxlength: 120 },
   bio:          { type: String, default: '', maxlength: 500 },
-  category: {
-    type: String,
-    required: true,
-    enum: [
-      'home_services', 'cleaning', 'repair_services',
-      'education', 'music_arts',
-      'food', 'bakery',
-      'beauty_salon', 'wellness', 'fitness', 'health_medical',
-      'events', 'photography', 'wedding',
-      'automotive', 'clothing_fashion', 'pet_care',
-      'transport', 'interior_design', 'it_tech', 'legal_finance',
-      'childcare', 'sports', 'printing', 'security', 'agriculture',
-    ],
-  },
+  // Category is a Category.slug (DB-backed, admin-managed). Validated in the
+  // providers route against the live Category list rather than a fixed enum,
+  // so admin-approved categories work without a code change.
+  category:     { type: String, required: true },
+  // While a requested category awaits admin approval the provider sits under
+  // 'others' publicly; this holds the proposed name so we can show it back to
+  // them. Cleared once the request is approved (moved to the new slug) or rejected.
+  pendingCategory: { type: String, default: '' },
   subCategory:  { type: String, default: '' },
   skills:       [{ type: String }],
   images:       [{ type: String }],
@@ -80,6 +74,7 @@ const ProviderSchema = new mongoose.Schema({
   planType:      { type: String, enum: ['free','basic','pro'], default: 'free' },
   status:        { type: String, enum: ['pending','active','suspended'], default: 'pending' },
   banReason:     { type: String, default: '' },   // set when admin suspends (5.8/5.9)
+  leadNotifications: { type: Boolean, default: true },   // receive new-lead bell/push alerts (provider opt-out)
 }, { timestamps: true });
 
 ProviderSchema.index({ category: 1, status: 1 });
@@ -157,6 +152,9 @@ const Notification = mongoose.model('Notification', NotificationSchema);
 
 // ─── CONVERSATION (unique per customer ↔ provider pair) ───────
 const ConversationSchema = new mongoose.Schema({
+  // 'direct' = customer ↔ provider. 'support' = admin ↔ a user (e.g. about a complaint):
+  // customerId holds the user being contacted, providerUserId holds the admin.
+  kind:           { type: String, enum: ['direct', 'support'], default: 'direct' },
   customerId:     { type: mongoose.Schema.Types.ObjectId, ref: 'User',     required: true },
   providerUserId: { type: mongoose.Schema.Types.ObjectId, ref: 'User',     required: true },
   providerId:     { type: mongoose.Schema.Types.ObjectId, ref: 'Provider' },
@@ -198,6 +196,18 @@ ContactLogSchema.index({ customerId: 1, providerId: 1 });
 
 const ContactLog = mongoose.model('ContactLog', ContactLogSchema);
 
+// ─── SAVED PROVIDER (customer bookmarks a provider) ───────────
+// One row per (customer, provider). Powers the bookmark button on the
+// profile and the "Saved" list on the customer dashboard.
+const SavedProviderSchema = new mongoose.Schema({
+  customerId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  providerId: { type: mongoose.Schema.Types.ObjectId, ref: 'Provider', required: true },
+}, { timestamps: true });
+
+SavedProviderSchema.index({ customerId: 1, providerId: 1 }, { unique: true });
+
+const SavedProvider = mongoose.model('SavedProvider', SavedProviderSchema);
+
 // ─── PROFILE VIEW (who visited a provider profile) ────────────
 // guestId is set for not-logged-in visitors (a client-generated id),
 // customerId for logged-in customers. Powers view counts + "Who Visited".
@@ -230,9 +240,7 @@ const AdReward = mongoose.model('AdReward', AdRewardSchema);
 // AppSettings.getSingleton() to read-or-create it.
 const AppSettingsSchema = new mongoose.Schema({
   key:                 { type: String, default: 'global', unique: true },  // always 'global'
-  otpEnabled:          { type: Boolean, default: true },   // customer + provider OTP
-  otpCustomerEnabled:  { type: Boolean, default: true },
-  otpProviderEnabled:  { type: Boolean, default: true },
+  otpEnabled:          { type: Boolean, default: true },   // single phone-OTP switch (all roles)
   adsEnabled:          { type: Boolean, default: true },   // banner + rewarded master switch
   rewardedAdsEnabled:  { type: Boolean, default: true },
   whoVisitedEnabled:   { type: Boolean, default: true },
@@ -280,4 +288,36 @@ const LeadSchema = new mongoose.Schema({
 
 const Lead = mongoose.model('Lead', LeadSchema);
 
-module.exports = { User, Provider, Service, Review, Complaint, Notification, Conversation, Message, ContactLog, ProfileView, AdReward, AppSettings, AdminLog, Lead };
+// ─── CATEGORY REQUEST (provider asks admin to add a missing category) ──
+// Raised from the service-edit form when a provider's trade isn't in the
+// canonical category list. Admin reviews these and can add the category.
+const CategoryRequestSchema = new mongoose.Schema({
+  requestedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  providerId:  { type: mongoose.Schema.Types.ObjectId, ref: 'Provider', default: null },
+  name:        { type: String, required: true, trim: true, maxlength: 80 },   // proposed category
+  note:        { type: String, default: '', maxlength: 500 },                  // what they do / why
+  status:      { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },
+}, { timestamps: true });
+
+CategoryRequestSchema.index({ status: 1, createdAt: -1 });
+
+const CategoryRequest = mongoose.model('CategoryRequest', CategoryRequestSchema);
+
+// ─── CATEGORY (DB-backed, admin-managed service categories) ───────────
+// Seeded from the canonical defaults on first use. Admin approval of a
+// CategoryRequest creates a new active Category, so it goes live everywhere
+// (dropdown, homepage, browse) without a code change.
+const CategorySchema = new mongoose.Schema({
+  slug:          { type: String, required: true, unique: true, trim: true },   // public id, e.g. 'home_services'
+  label:         { type: String, required: true, trim: true },
+  icon:          { type: String, default: 'bi-tag' },
+  color:         { type: String, default: '#2563A8' },
+  image:         { type: String, default: '' },
+  subCategories: { type: [String], default: [] },
+  order:         { type: Number, default: 100 },   // display order on the homepage grid
+  isActive:      { type: Boolean, default: true },
+}, { timestamps: true });
+
+const Category = mongoose.model('Category', CategorySchema);
+
+module.exports = { User, Provider, Service, Review, Complaint, Notification, Conversation, Message, ContactLog, ProfileView, AdReward, AppSettings, AdminLog, Lead, CategoryRequest, Category, SavedProvider };

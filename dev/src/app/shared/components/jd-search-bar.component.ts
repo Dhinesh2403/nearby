@@ -35,7 +35,8 @@ const RECENT_LOC_KEY = 'nb_recent_locations';
         @if (locOpen()) {
           <div class="jd-drop" (mousedown)="$event.preventDefault()">
             @if (recentLocations().length) {
-              <p class="jd-drop-h">Recent</p>
+              <div class="jd-drop-row"><p class="jd-drop-h">Recent</p>
+                <button class="jd-clear" (click)="clearRecentLocations()">Clear All</button></div>
               @for (l of recentLocations(); track l) {
                 <div class="jd-item" (click)="pickLocation(l)"><i class="bi bi-clock-history"></i><span>{{ l }}</span></div>
               }
@@ -253,6 +254,7 @@ export class JdSearchBarComponent implements OnInit, OnDestroy {
   }
 
   clearRecents() { localStorage.removeItem(RECENT_KEY); this.recentSearches.set([]); }
+  clearRecentLocations() { localStorage.removeItem(RECENT_LOC_KEY); this.recentLocations.set([]); }
 
   // Voice search (11.4) — Web Speech API
   startVoice() {

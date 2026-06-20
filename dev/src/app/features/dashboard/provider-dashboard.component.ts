@@ -1,13 +1,15 @@
 // src/app/features/dashboard/provider-dashboard.component.ts
-import { Component, OnInit, signal, computed } from '@angular/core';
+import { Component, OnInit, OnDestroy, signal, computed } from '@angular/core';
 import { CommonModule }  from '@angular/common';
 import { FormsModule }   from '@angular/forms';
 import { RouterLink, Router } from '@angular/router';
+import { Subscription }  from 'rxjs';
 import { AuthService }   from '../../core/auth/auth.service';
-import { ApiService, ApiResponse } from '../../core/services/api.service';
+import { ApiService, ApiResponse, SocketService } from '../../core/services/api.service';
 import { ChatService }   from '../../core/services/chat.service';
 import { ToastService }  from '../../core/services/toast.service';
 import { AdMobService }  from '../../core/services/admob.service';
+import { SettingsService } from '../../core/services/settings.service';
 
 interface Stats {
   views:    { today: number; week: number; all: number };
@@ -75,13 +77,14 @@ interface Lead { _id: string; name: string; mobile: string; service: string; loc
       <div class="row g-4">
         <div class="col-lg-7">
 
-          <!-- ── WHO VISITED (4.8) ──────────────────────────────── -->
+          <!-- ── WHO VISITED (4.8) — hidden when admin disables the feature ── -->
+          @if (settings.settings()?.whoVisitedEnabled !== false) {
           <div class="ds-card mb-4 wv-card">
             <div class="ds-hdr">
               <h6 class="ds-title"><i class="bi bi-incognito me-2"></i>Who Visited My Profile?</h6>
             </div>
             @if (teaser(); as t) {
-              @if (t.unlocked) {
+              @if (visitorsRevealed()) {
                 <p class="wv-teaser unlocked"><i class="bi bi-unlock-fill"></i>
                   Unlocked — {{ visitors().length }} recent visitors</p>
                 <div class="visitor-list">
@@ -117,6 +120,7 @@ interface Lead { _id: string; name: string; mobile: string; service: string; loc
               <div class="text-center py-3"><div class="nb-spinner" style="margin:auto"></div></div>
             }
           </div>
+          }
 
           <!-- ── REVIEWS + REPLY (4.7) ──────────────────────────── -->
           <div class="ds-card">
@@ -165,6 +169,17 @@ interface Lead { _id: string; name: string; mobile: string; service: string; loc
           <div class="ds-card mb-4">
             <div class="ds-hdr"><h6 class="ds-title"><i class="bi bi-megaphone-fill me-2"></i>Recent Leads</h6>
               <span class="nb-badge nb-badge-muted">{{ leads().length }}</span></div>
+
+            <!-- Provider opt-in/out for new-lead alerts (default on) -->
+            <label class="lead-pref">
+              <span class="lead-pref-txt"><i class="bi bi-bell me-1"></i>Notify me about new leads</span>
+              <span class="nb-switch">
+                <input type="checkbox" [checked]="leadNotifications()"
+                       [disabled]="savingPref()" (change)="toggleLeadNotifications($event)">
+                <span class="nb-slider"></span>
+              </span>
+            </label>
+
             @if (leads().length === 0) {
               <p class="text-muted-nb text-center py-3" style="font-size:.875rem">
                 No enquiries yet. Leads from customers in your category &amp; area appear here.</p>
@@ -179,8 +194,19 @@ interface Lead { _id: string; name: string; mobile: string; service: string; loc
                     @if (l.location) { <span class="ms-2"><i class="bi bi-geo-alt me-1"></i>{{ l.location }}</span> }
                   </p>
                 </div>
-                <a class="lead-call" [href]="'tel:' + l.mobile"><i class="bi bi-telephone-fill me-1"></i>{{ l.mobile }}</a>
+                @if (leadsRevealed()) {
+                  <a class="lead-call" [href]="'tel:' + l.mobile"><i class="bi bi-telephone-fill me-1"></i>{{ l.mobile }}</a>
+                } @else {
+                  <span class="lead-call lead-locked"><i class="bi bi-lock-fill me-1"></i>{{ maskMobile(l.mobile) }}</span>
+                }
               </div>
+            }
+
+            @if (leads().length > 0 && !leadsRevealed()) {
+              <button class="btn-nb-accent btn w-100 mt-2" [disabled]="revealingLeads()" (click)="revealLeads()">
+                @if (revealingLeads()) { <span class="spinner-border spinner-border-sm me-2"></span>Loading ad… }
+                @else { <i class="bi bi-play-circle me-2"></i>Watch 1 ad to reveal contact numbers }
+              </button>
             }
           </div>
 
@@ -189,6 +215,7 @@ interface Lead { _id: string; name: string; mobile: string; service: string; loc
             <div class="ql-list">
               <a routerLink="/provider/services" class="ql-item"><i class="bi bi-pencil-square"></i>Edit Service Details</a>
               <a routerLink="/chats" class="ql-item"><i class="bi bi-chat-dots-fill"></i>My Conversations</a>
+              <button type="button" class="ql-item" (click)="contactAdmin()"><i class="bi bi-headset"></i>Contact Admin / Support</button>
               <a routerLink="/complaints/new" class="ql-item"><i class="bi bi-flag"></i>Raise a Complaint</a>
             </div>
           </div>
@@ -253,13 +280,25 @@ interface Lead { _id: string; name: string; mobile: string; service: string; loc
     .lead-meta { font-size:.75rem; color:var(--nb-text-muted); margin:2px 0 0; }
     .lead-call { display:inline-flex; align-items:center; white-space:nowrap; font-size:.78rem; font-weight:600; color:var(--nb-success); text-decoration:none; background:var(--nb-surface-2); padding:6px 10px; border-radius:var(--radius-sm); }
     .lead-call:hover { background:#ECFDF5; }
+    .lead-locked { color:var(--nb-text-muted); background:var(--nb-surface-2); cursor:default; }
+    /* Lead notification preference + switch */
+    .lead-pref { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:8px 12px; margin-bottom:.75rem; background:var(--nb-surface-2); border-radius:var(--radius-md); }
+    .lead-pref-txt { font-size:.82rem; font-weight:600; color:var(--nb-text); }
+    .nb-switch { position:relative; display:inline-block; width:40px; height:22px; flex:none; }
+    .nb-switch input { opacity:0; width:0; height:0; }
+    .nb-slider { position:absolute; inset:0; cursor:pointer; background:var(--nb-border); border-radius:22px; transition:background .2s; }
+    .nb-slider::before { content:''; position:absolute; height:16px; width:16px; left:3px; top:3px; background:#fff; border-radius:50%; transition:transform .2s; }
+    .nb-switch input:checked + .nb-slider { background:var(--nb-success); }
+    .nb-switch input:checked + .nb-slider::before { transform:translateX(18px); }
+    .nb-switch input:disabled + .nb-slider { opacity:.6; cursor:default; }
     .ql-list { display:flex; flex-direction:column; gap:6px; }
     .ql-item { display:flex; align-items:center; gap:10px; padding:10px 12px; background:var(--nb-surface-2); border-radius:var(--radius-md); color:var(--nb-text); text-decoration:none; font-size:.875rem; transition:background .15s; }
     .ql-item i { color:var(--nb-primary); }
     .ql-item:hover { background:#EFF6FF; }
+    button.ql-item { width:100%; border:none; text-align:left; cursor:pointer; font-family:inherit; }
   `]
 })
-export class ProviderDashboardComponent implements OnInit {
+export class ProviderDashboardComponent implements OnInit, OnDestroy {
   stats   = signal<Stats | null>(null);
   teaser  = signal<Teaser | null>(null);
   visitors = signal<Visitor[]>([]);
@@ -270,9 +309,22 @@ export class ProviderDashboardComponent implements OnInit {
   replyText = '';
   private myProviderId = '';
 
+  // Session-only reveal state — both reset to locked whenever the dashboard is
+  // re-entered (component re-created on navigation), so an ad must be watched
+  // again each visit.
+  visitorsRevealed = signal(false);
+  leadsRevealed    = signal(false);
+  revealingLeads   = signal(false);
+
+  // Provider's lead-alert preference (default on); persisted server-side.
+  leadNotifications = signal(true);
+  savingPref        = signal(false);
+
   // count-up animated numbers
   animViews    = signal(0);
   animContacts = signal(0);
+
+  private leadSub?: Subscription;
 
   constructor(
     public auth: AuthService,
@@ -281,6 +333,8 @@ export class ProviderDashboardComponent implements OnInit {
     private toast: ToastService,
     private router: Router,
     private admob: AdMobService,
+    private socket: SocketService,
+    public settings: SettingsService,
   ) {}
 
   ngOnInit() {
@@ -288,6 +342,25 @@ export class ProviderDashboardComponent implements OnInit {
     this.loadTeaser();
     this.loadProfileAndReviews();
     this.loadLeads();
+
+    // Live: a new enquiry pushes a 'lead' notification — refresh the list so it
+    // appears instantly without a page reload. (Opted-out providers don't get
+    // the push, so this naturally respects the notify toggle.)
+    this.leadSub = this.socket.onNotifyNew().subscribe((p: any) => {
+      if (p?.type === 'lead') this.loadLeads();
+    });
+  }
+
+  ngOnDestroy() {
+    this.leadSub?.unsubscribe();
+  }
+
+  // Open (or resume) a support chat with the platform admin.
+  contactAdmin() {
+    this.chat.openSupport().subscribe({
+      next: c => this.router.navigate(['/chat', c._id]),
+      error: () => this.toast.error('Could not reach support right now.'),
+    });
   }
 
   loadLeads() {
@@ -307,11 +380,14 @@ export class ProviderDashboardComponent implements OnInit {
   }
 
   loadTeaser() {
+    // Skip entirely when the admin has switched off the "Who Visited" feature —
+    // the card is hidden and the endpoint would just 403.
+    if (this.settings.settings()?.whoVisitedEnabled === false) return;
+    // Only fetch the count + ad progress here. The list stays locked until the
+    // provider watches an ad this session (visitorsRevealed), so it re-locks on
+    // every page visit even if the server already unlocked it this week.
     this.api.get<ApiResponse<Teaser>>('/providers/my/visitors/teaser').subscribe({
-      next: res => {
-        this.teaser.set(res.data);
-        if (res.data.unlocked) this.loadVisitors();
-      },
+      next: res => this.teaser.set(res.data),
     });
   }
 
@@ -325,6 +401,7 @@ export class ProviderDashboardComponent implements OnInit {
     this.api.get<ApiResponse<any>>('/providers/my').subscribe({
       next: res => {
         this.myProviderId = res.data?._id ?? '';
+        this.leadNotifications.set(res.data?.leadNotifications !== false);
         if (this.myProviderId) {
           this.api.get<ApiResponse<MyReview[]>>(`/reviews/provider/${this.myProviderId}`).subscribe({
             next: r => this.myReviews.set(r.data ?? []),
@@ -356,12 +433,61 @@ export class ProviderDashboardComponent implements OnInit {
     this.api.post<ApiResponse<any>>('/ads/verify-reward', {}).subscribe({
       next: res => {
         this.watchingAd.set(false);
-        if (res.data.unlocked) { this.toast.success('Visitor list unlocked!'); }
-        else { this.toast.success(`Ad complete (${res.data.adsWatched}/${res.data.adsRequired})`); }
+        if (res.data.unlocked) {
+          this.visitorsRevealed.set(true);   // session-only reveal — re-locks on next visit
+          this.loadVisitors();
+          this.toast.success('Visitor list unlocked!');
+        } else {
+          this.toast.success(`Ad complete (${res.data.adsWatched}/${res.data.adsRequired})`);
+        }
         this.loadTeaser();
       },
       error: () => { this.watchingAd.set(false); this.toast.error('Could not record ad. Try again.'); },
     });
+  }
+
+  // Leads: watching one ad reveals every lead's contact number for this page
+  // visit only (leadsRevealed resets when the dashboard is re-entered).
+  async revealLeads() {
+    this.revealingLeads.set(true);
+
+    const earned = await this.admob.showRewarded();
+    if (!earned) {
+      const hasNativeAds = await this.admob.isAdLayerAvailable();
+      if (hasNativeAds) {
+        this.revealingLeads.set(false);
+        this.toast.error('Finish the ad to reveal the numbers.');
+        return;
+      }
+      await new Promise(r => setTimeout(r, 1200));   // web fallback — simulate the watch
+    }
+
+    this.revealingLeads.set(false);
+    this.leadsRevealed.set(true);
+    this.toast.success('Lead contact numbers revealed.');
+  }
+
+  toggleLeadNotifications(ev: Event) {
+    const on = (ev.target as HTMLInputElement).checked;
+    this.savingPref.set(true);
+    this.api.put<ApiResponse<{ leadNotifications: boolean }>>('/providers/my/preferences', { leadNotifications: on }).subscribe({
+      next: res => {
+        this.savingPref.set(false);
+        this.leadNotifications.set(res.data.leadNotifications);
+        this.toast.success(on ? 'Lead alerts turned on.' : 'Lead alerts turned off.');
+      },
+      error: () => {
+        this.savingPref.set(false);
+        this.leadNotifications.set(!on);   // revert the toggle on failure
+        this.toast.error('Could not update preference.');
+      },
+    });
+  }
+
+  // Mask all but the last 4 digits, e.g. +91 ••••• 3843
+  maskMobile(m: string) {
+    const last4 = String(m || '').replace(/\D/g, '').slice(-4);
+    return `+91 ••••• ${last4}`;
   }
 
   startReply(r: MyReview) { this.replyingTo.set(r._id); this.replyText = r.providerReply || ''; }
