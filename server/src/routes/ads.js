@@ -18,16 +18,26 @@ router.post('/verify-reward', protect, authorize('provider'), async (req, res, n
     if (!p) return fail(res, 'Provider profile not found.', 404);
 
     const required = settings.adsRequiredCount ?? 2;
+
+    // "This week" window (today + previous 6 days) — unlock state is scoped to
+    // it so the teaser, the visitor list and this endpoint always agree, and the
+    // list re-locks for a fresh week. Must match providers.js#visitorUnlockState.
+    const now   = new Date();
+    const since = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    since.setDate(since.getDate() - 6);
+
     await AdReward.create({ providerId: p._id, adType: 'rewarded' });
 
-    const adsWatched = await AdReward.countDocuments({ providerId: p._id, unlockedVisitorBatch: false });
-    const unlocked   = adsWatched >= required;
+    const pending  = await AdReward.countDocuments({ providerId: p._id, unlockedVisitorBatch: false, createdAt: { $gte: since } });
+    let   consumed = await AdReward.countDocuments({ providerId: p._id, unlockedVisitorBatch: true,  createdAt: { $gte: since } });
 
-    if (unlocked) {
+    // Crossed the threshold on this watch → consume the pending batch + notify.
+    if (consumed < required && pending >= required) {
       await AdReward.updateMany(
-        { providerId: p._id, unlockedVisitorBatch: false },
+        { providerId: p._id, unlockedVisitorBatch: false, createdAt: { $gte: since } },
         { unlockedVisitorBatch: true }
       );
+      consumed += pending;
       await pushNotify(req.app.locals.io, req.user._id, {
         type:  'visitors_unlocked',
         title: 'Visitor list unlocked!',
@@ -36,6 +46,8 @@ router.post('/verify-reward', protect, authorize('provider'), async (req, res, n
       });
     }
 
+    const unlocked   = consumed >= required;
+    const adsWatched = unlocked ? required : pending;
     ok(res, { adsWatched, adsRequired: required, unlocked }, 'Reward verified.');
   } catch (e) { next(e); }
 });

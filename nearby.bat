@@ -13,9 +13,32 @@ title NearBy Dev Tool
 ::  Or run with no args for interactive menu
 :: -----------------------------------------------------------------------------
 
-set "ROOT=%~dp0"
+:: Re-launch from a private temp copy so git stash/checkout can never swap THIS
+:: file out from under the running interpreter. When git reverts/checks out the
+:: tracked nearby.bat mid-run, cmd keeps reading byte offsets from the swapped
+:: file and executes garbage (e.g. "'et' is not recognized"). The temp copy is
+:: untracked, so it stays put while the repo copy is free to change.
+if not defined NEARBY_RELAUNCHED (
+    set "NEARBY_RELAUNCHED=1"
+    set "NEARBY_ROOT=%~dp0"
+    set "NEARBY_SELF=%TEMP%\nearby_run_%RANDOM%%RANDOM%.bat"
+    copy /y "%~f0" "!NEARBY_SELF!" >nul
+    call "!NEARBY_SELF!" %*
+    set "RC=!ERRORLEVEL!"
+    del "!NEARBY_SELF!" >nul 2>&1
+    exit /b !RC!
+)
+
+:: --- Below here runs from the temp copy; use the repo root captured above. ---
+set "ROOT=%NEARBY_ROOT%"
 set "SERVER=%ROOT%server"
 set "CLIENT=%ROOT%dev"
+cd /d "%ROOT%"
+
+:: Detect the git remote name (this repo's remote may not be called "origin").
+set "REMOTE="
+for /f "delims=" %%R in ('git remote 2^>nul') do if not defined REMOTE set "REMOTE=%%R"
+if not defined REMOTE set "REMOTE=origin"
 
 if not "%1"=="" (
     call :CMD_%1 2>nul
@@ -44,12 +67,15 @@ echo  +======================================================+
 echo.
 set /p "CHOICE=  Choose [1-7]: "
 
-if "%CHOICE%"=="1" call :CMD_dev    & goto :MENU_WAIT
-if "%CHOICE%"=="2" call :CMD_install
-if "%CHOICE%"=="3" call :CMD_staging
-if "%CHOICE%"=="4" call :CMD_prod
-if "%CHOICE%"=="5" call :CMD_release
-if "%CHOICE%"=="6" call :CMD_status
+:: Dispatch with goto (not call): handlers return via "goto :MENU", which keeps
+:: the call stack flat. Using call here leaks a frame each round and eventually
+:: trips cmd's batch-recursion limit.
+if "%CHOICE%"=="1" goto :CMD_dev
+if "%CHOICE%"=="2" goto :CMD_install
+if "%CHOICE%"=="3" goto :CMD_staging
+if "%CHOICE%"=="4" goto :CMD_prod
+if "%CHOICE%"=="5" goto :CMD_release
+if "%CHOICE%"=="6" goto :CMD_status
 if "%CHOICE%"=="7" exit /b 0
 
 echo [ERROR] Invalid choice.
@@ -86,7 +112,7 @@ echo.
 echo  Backend  -^> http://localhost:5000
 echo  Frontend -^> http://localhost:4200
 echo.
-exit /b 0
+goto :MENU_WAIT
 
 
 :: -----------------------------------------------------------------------------
@@ -135,42 +161,35 @@ echo.
 git status
 echo.
 
+:: Carry any uncommitted changes onto main (stash -> checkout -> pop),
+:: so this works even when you are sitting on prod or a feature branch.
+call :SYNC_TO_MAIN
+if errorlevel 1 (
+    pause
+    goto :MENU
+)
+
 call :CHECK_DIRTY
-if "%DIRTY%"=="0" (
-    echo  [STAGING] Nothing to commit.
-    pause
-    goto :MENU
-)
-
-call :GET_MESSAGE "staging"
-if "!MSG!"=="" (
-    echo  [STAGING] Commit cancelled - empty message.
-    pause
-    goto :MENU
-)
-
-:: Switch to main if not already there
-for /f "tokens=*" %%B in ('git rev-parse --abbrev-ref HEAD') do set "BRANCH=%%B"
-if not "%BRANCH%"=="main" (
-    echo  [STAGING] Switching to main ...
-    git checkout main
-    if errorlevel 1 (
-        echo  [STAGING] Failed to switch to main - stash or commit your changes first.
+if "%DIRTY%"=="1" (
+    call :GET_MESSAGE "staging"
+    if "!MSG!"=="" (
+        echo  [STAGING] Commit cancelled - empty message.
         pause
         goto :MENU
     )
+    git add -A
+    git commit -m "!MSG!"
+    if errorlevel 1 (
+        echo  [STAGING] Commit failed.
+        pause
+        goto :MENU
+    )
+) else (
+    echo  [STAGING] No new changes - pushing current main HEAD.
 )
 
-git add -A
-git commit -m "!MSG!"
-if errorlevel 1 (
-    echo  [STAGING] Commit failed.
-    pause
-    goto :MENU
-)
-
-echo  [STAGING] Pushing to origin/main ...
-git push origin main
+echo  [STAGING] Pushing to !REMOTE!/main ...
+git push !REMOTE! main
 if errorlevel 1 (
     echo  [STAGING] Push failed - check remote access.
     pause
@@ -208,50 +227,68 @@ echo.
 git status
 echo.
 
-set /p "CONFIRM=  Confirm push to prod? [y/N]: "
+:: Prod is a PROMOTION of main -> prod. It does not commit working changes.
+:: If the tree is dirty, send the user to staging/release first so the code
+:: lands on main before it is promoted.
+call :CHECK_DIRTY
+if "%DIRTY%"=="1" (
+    echo  [PROD] You have uncommitted changes.
+    echo  [PROD] Run option 3 (staging) or 5 (release) first so they land on main,
+    echo  [PROD] then promote to prod from here.
+    pause
+    goto :MENU
+)
+
+set /p "CONFIRM=  Confirm promote main -^> prod and push? [y/N]: "
 if /i not "%CONFIRM%"=="y" (
     echo  [PROD] Aborted.
     pause
     goto :MENU
 )
 
-call :CHECK_DIRTY
-
-:: If there are uncommitted changes, commit them first
-if "%DIRTY%"=="1" (
-    call :GET_MESSAGE "prod"
-    if "!MSG!"=="" (
-        echo  [PROD] Commit cancelled - empty message.
-        pause
-        goto :MENU
-    )
-    git add -A
-    git commit -m "!MSG!"
-    if errorlevel 1 (
-        echo  [PROD] Commit failed.
-        pause
-        goto :MENU
-    )
+:: Tree is clean, so switching branches is safe.
+git checkout main
+if errorlevel 1 (
+    echo  [PROD] Could not switch to main.
+    pause
+    goto :MENU
 )
 
-:: Switch to prod branch (create if it doesn't exist)
+:: Switch to prod branch (create if it doesn't exist) and bring main in.
 git show-ref --verify --quiet refs/heads/prod
 if errorlevel 1 (
     echo  [PROD] Creating local prod branch from main ...
-    git checkout main
     git checkout -b prod
+    if errorlevel 1 (
+        echo  [PROD] Failed to create prod branch.
+        pause
+        goto :MENU
+    )
 ) else (
     git checkout prod
+    if errorlevel 1 (
+        echo  [PROD] Failed to switch to prod.
+        pause
+        goto :MENU
+    )
     git merge main --no-edit
+    if errorlevel 1 (
+        echo  [PROD] Merge main -^> prod failed - resolve conflicts, then retry.
+        pause
+        goto :MENU
+    )
 )
 
-echo  [PROD] Pushing to origin/prod ...
-git push origin prod
+echo  [PROD] Pushing to !REMOTE!/prod ...
+git push !REMOTE! prod
 if errorlevel 1 (
     echo  [PROD] Push failed - check remote access / branch protection.
     pause
     goto :MENU
 )
+
+:: Leave the working tree back on main.
+git checkout main >nul 2>nul
 
 echo.
 echo  [PROD] Pushed to prod.
@@ -291,16 +328,11 @@ if /i not "%CONFIRM%"=="y" (
     goto :MENU
 )
 
-:: Make sure we are on main before committing
-for /f "tokens=*" %%B in ('git rev-parse --abbrev-ref HEAD') do set "BRANCH=%%B"
-if not "%BRANCH%"=="main" (
-    echo  [RELEASE] Switching to main ...
-    git checkout main
-    if errorlevel 1 (
-        echo  [RELEASE] Failed to switch to main - stash or commit your changes first.
-        pause
-        goto :MENU
-    )
+:: Carry any uncommitted changes onto main (stash -> checkout -> pop).
+call :SYNC_TO_MAIN
+if errorlevel 1 (
+    pause
+    goto :MENU
 )
 
 :: Commit any pending changes on main
@@ -324,8 +356,8 @@ if "%DIRTY%"=="1" (
 )
 
 :: Push main (staging)
-echo  [RELEASE] Pushing to origin/main ...
-git push origin main
+echo  [RELEASE] Pushing to !REMOTE!/main ...
+git push !REMOTE! main
 if errorlevel 1 (
     echo  [RELEASE] Push to main failed - check remote access.
     pause
@@ -352,8 +384,8 @@ if errorlevel 1 (
     )
 )
 
-echo  [RELEASE] Pushing to origin/prod ...
-git push origin prod
+echo  [RELEASE] Pushing to !REMOTE!/prod ...
+git push !REMOTE! prod
 if errorlevel 1 (
     echo  [RELEASE] Push to prod failed - check remote access / branch protection.
     pause
@@ -376,6 +408,40 @@ goto :MENU
 :: -----------------------------------------------------------------------------
 ::  Helpers
 :: -----------------------------------------------------------------------------
+
+:: Move to main, carrying any uncommitted changes via a temporary stash.
+:: Returns exit code 1 (and prints why) if the branch could not be reached.
+:SYNC_TO_MAIN
+set "STASHED=0"
+for /f "tokens=*" %%B in ('git rev-parse --abbrev-ref HEAD') do set "CURBR=%%B"
+if /i "%CURBR%"=="main" exit /b 0
+
+call :CHECK_DIRTY
+if "%DIRTY%"=="1" (
+    echo  [GIT] Stashing local changes to carry them to main ...
+    git stash push -u -m "nearby-autostash"
+    if errorlevel 1 (
+        echo  [GIT] Stash failed - cannot move changes to main.
+        exit /b 1
+    )
+    set "STASHED=1"
+)
+
+git checkout main
+if errorlevel 1 (
+    echo  [GIT] Could not switch to main.
+    if "%STASHED%"=="1" git stash pop
+    exit /b 1
+)
+
+if "%STASHED%"=="1" (
+    git stash pop
+    if errorlevel 1 (
+        echo  [GIT] Stash pop hit a conflict - resolve it, then retry.
+        exit /b 1
+    )
+)
+exit /b 0
 
 :CHECK_DIRTY
 set "DIRTY=0"

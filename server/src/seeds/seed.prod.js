@@ -57,6 +57,7 @@ const run = async () => {
     email: DEMO_CUSTOMER_EMAIL,
     phone: DEMO_CUSTOMER_PHONE,
     passwordHash: DEMO_CUSTOMER_PASSWORD,
+    hasPassword: true,
     role: 'customer',
     isDemo: true,
     location: {
@@ -74,6 +75,7 @@ const run = async () => {
     email: DEMO_PROVIDER_EMAIL,
     phone: DEMO_PROVIDER_PHONE,
     passwordHash: DEMO_PROVIDER_PASSWORD,
+    hasPassword: true,
     role: 'provider',
     isDemo: true,
     location: {
@@ -108,6 +110,7 @@ const run = async () => {
     email: DEMO_ADMIN_EMAIL,
     phone: DEMO_ADMIN_PHONE,
     passwordHash: DEMO_ADMIN_PASSWORD,
+    hasPassword: true,
     role: 'admin',
     isDemo: true,
     location: {

@@ -8,6 +8,30 @@ const { protect, authorize }  = require('../middleware/auth');
 // admin-configurable via AppSettings (5.12), default 2.
 const adsRequired = async () => (await AppSettings.getSingleton()).adsRequiredCount ?? 2;
 
+// Start of the rolling "this week" window (today + previous 6 days, at midnight).
+// Used for both the visitor count and the ad-unlock state so they always agree.
+const weekStart = () => {
+  const now = new Date();
+  const d = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  d.setDate(d.getDate() - 6);
+  return d;
+};
+
+// Single source of truth for a provider's visitor-list unlock state this week.
+// A batch is unlocked once `required` rewarded ads watched this week have been
+// consumed (unlockedVisitorBatch:true). `pending` is progress toward the next
+// unlock. The teaser and the visitor list both read this so they never disagree.
+const visitorUnlockState = async (providerId) => {
+  const required = await adsRequired();
+  const since    = weekStart();
+  const [pending, consumed] = await Promise.all([
+    AdReward.countDocuments({ providerId, unlockedVisitorBatch: false, createdAt: { $gte: since } }),
+    AdReward.countDocuments({ providerId, unlockedVisitorBatch: true,  createdAt: { $gte: since } }),
+  ]);
+  const unlocked = consumed >= required;
+  return { required, since, pending, unlocked, adsWatched: unlocked ? required : pending };
+};
+
 // Compute a provider's profile-completion percentage from filled fields.
 const completionPct = (p) => {
   const checks = [
@@ -134,14 +158,8 @@ router.get('/my/visitors/teaser', protect, authorize('provider'), async (req, re
     const p = await Provider.findOne({ userId: req.user._id });
     if (!p) return fail(res, 'Provider profile not found.', 404);
 
-    const now       = new Date();
-    const startWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    startWeek.setDate(startWeek.getDate() - 6);
-
-    const required    = await adsRequired();
-    const count       = await ProfileView.countDocuments({ providerId: p._id, createdAt: { $gte: startWeek } });
-    const adsWatched  = await AdReward.countDocuments({ providerId: p._id, unlockedVisitorBatch: false });
-    const unlocked    = adsWatched >= required;
+    const { required, since, unlocked, adsWatched } = await visitorUnlockState(p._id);
+    const count = await ProfileView.countDocuments({ providerId: p._id, createdAt: { $gte: since } });
 
     ok(res, { count, unlocked, adsWatched, adsRequired: required });
   } catch (e) { next(e); }
@@ -155,15 +173,17 @@ router.post('/my/ad-reward', protect, authorize('provider'), async (req, res, ne
     if (!p) return fail(res, 'Provider profile not found.', 404);
 
     await AdReward.create({ providerId: p._id });
-    const required   = await adsRequired();
-    const adsWatched = await AdReward.countDocuments({ providerId: p._id, unlockedVisitorBatch: false });
-    const unlocked   = adsWatched >= required;
 
-    if (unlocked) {
+    const before = await visitorUnlockState(p._id);
+    let unlocked = before.unlocked;
+
+    // Crossed the threshold on this watch → consume the pending batch + notify.
+    if (!unlocked && before.pending >= before.required) {
       await AdReward.updateMany(
-        { providerId: p._id, unlockedVisitorBatch: false },
+        { providerId: p._id, unlockedVisitorBatch: false, createdAt: { $gte: before.since } },
         { unlockedVisitorBatch: true }
       );
+      unlocked = true;
       await pushNotify(req.app.locals.io, req.user._id, {
         type:  'visitors_unlocked',
         title: 'Visitor list unlocked!',
@@ -172,7 +192,8 @@ router.post('/my/ad-reward', protect, authorize('provider'), async (req, res, ne
       });
     }
 
-    ok(res, { adsWatched, adsRequired: required, unlocked });
+    const adsWatched = unlocked ? before.required : before.pending;
+    ok(res, { adsWatched, adsRequired: before.required, unlocked });
   } catch (e) { next(e); }
 });
 
@@ -182,16 +203,11 @@ router.get('/my/visitors', protect, authorize('provider'), async (req, res, next
     const p = await Provider.findOne({ userId: req.user._id });
     if (!p) return fail(res, 'Provider profile not found.', 404);
 
-    const required    = await adsRequired();
-    const unlockedAds = await AdReward.countDocuments({ providerId: p._id, unlockedVisitorBatch: true });
-    if (unlockedAds < required)
+    const { unlocked, since } = await visitorUnlockState(p._id);
+    if (!unlocked)
       return fail(res, 'Watch the rewarded ads to unlock your visitor list.', 403);
 
-    const now       = new Date();
-    const startWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    startWeek.setDate(startWeek.getDate() - 6);
-
-    const views = await ProfileView.find({ providerId: p._id, createdAt: { $gte: startWeek } })
+    const views = await ProfileView.find({ providerId: p._id, createdAt: { $gte: since } })
       .populate('customerId', 'name phone')
       .sort({ createdAt: -1 })
       .limit(100);
