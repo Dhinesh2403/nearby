@@ -22,6 +22,13 @@ firebase-service-account.json
 google-services.json
 GoogleService-Info.plist
 
+# ── Seed scripts (hardcode demo/admin credentials) ─────────────
+# seed.js (the dispatcher) stays tracked; the env-specific seeders
+# carry passwords and must not be committed.
+server/src/seeds/seed.dev.js
+server/src/seeds/seed.staging.js
+server/src/seeds/seed.prod.js
+
 # ── Build output ───────────────────────────────────────────────
 dist/
 .angular/

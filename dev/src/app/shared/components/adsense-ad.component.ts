@@ -56,10 +56,13 @@ export class AdsenseAdComponent implements AfterViewInit, OnDestroy {
   constructor(
     @Inject(PLATFORM_ID) private platformId: object,
   ) {
-    // Only render on browser; SSR would have no adsbygoogle global.
+    // Only render on browser (SSR has no adsbygoogle global) and only when
+    // AdSense is switched on for this build with a publisher ID configured.
+    // The `enabled` flag is the master switch — dev keeps it off, prod/staging
+    // turn it on (the actual publisher ID lives in index.html + environment).
     this.show = isPlatformBrowser(this.platformId)
-      && !!environment.adsense?.publisherId
-      && environment.adsense.publisherId !== 'ca-pub-6613739357752442';
+      && environment.adsense?.enabled === true
+      && !!environment.adsense?.publisherId;
   }
 
   ngAfterViewInit() {
