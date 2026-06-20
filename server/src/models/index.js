@@ -57,6 +57,9 @@ const ProviderSchema = new mongoose.Schema({
   pendingCategory: { type: String, default: '' },
   subCategory:  { type: String, default: '' },
   skills:       [{ type: String }],
+  // Provider-chosen highlight badges (e.g. 'quick_response'). Validated and
+  // capped (max 3) in the providers route against HIGHLIGHT_VALUES.
+  highlights:   [{ type: String }],
   images:       [{ type: String }],
   experience:   { type: Number, default: 0 },
   isVerified:   { type: Boolean, default: false },

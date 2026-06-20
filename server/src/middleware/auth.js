@@ -14,8 +14,11 @@ const protect = async (req, res, next) => {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     const user    = await User.findById(decoded.userId).select('-passwordHash');
 
-    if (!user || !user.isActive)
-      return fail(res, 'User not found or account suspended.', 401);
+    if (!user) return fail(res, 'User not found.', 401);
+    // Account deactivated by an admin mid-session → 403 with a code so the
+    // client force-logs-out instead of trying to refresh the (valid) token.
+    if (!user.isActive)
+      return fail(res, 'Your account has been deactivated by the admin.', 403, 'ACCOUNT_DEACTIVATED');
 
     req.user = user;
     next();

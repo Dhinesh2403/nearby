@@ -43,6 +43,7 @@ export interface Provider {
   category:     string;
   subCategory:  string;
   skills:       string[];
+  highlights?:  string[];
   images:       string[];
   experience:   number;
   isVerified:   boolean;
@@ -147,6 +148,7 @@ export class SocketService implements OnDestroy {
   onSeen()      { return this.on<any>('messages_seen'); }
   onChatNew()   { return this.on<any>('chat:new'); }
   onNotifyNew() { return this.on<any>('notify:new'); }
+  onDeactivated() { return this.on<any>('auth:deactivated'); }
 
   ngOnDestroy() { this.disconnect(); }
 }

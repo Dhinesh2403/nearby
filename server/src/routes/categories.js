@@ -264,16 +264,23 @@ router.put('/requests/:id', protect, authorize('admin'), async (req, res, next) 
         cat.isActive = true; await cat.save();
       }
       newSlug = cat.slug;
+    }
 
-      // Move the requesting provider from 'others' onto the new live category.
-      if (reqDoc.providerId) {
-        await Provider.findByIdAndUpdate(reqDoc.providerId, { category: newSlug, pendingCategory: '' });
+    // Resolve the provider to act on. The request may have been raised before
+    // the provider's profile existed (providerId null) — fall back to the
+    // requesting user's provider, and backfill the link for next time.
+    let provider = reqDoc.providerId ? await Provider.findById(reqDoc.providerId) : null;
+    if (!provider) provider = await Provider.findOne({ userId: reqDoc.requestedBy });
+    if (provider && !reqDoc.providerId) reqDoc.providerId = provider._id;
+
+    if (provider) {
+      if (status === 'approved') {
+        // Move from 'others' onto the new live category.
+        provider.category = newSlug;
       }
-    } else {
-      // Rejected — stop showing the proposed category; stay under 'others'.
-      if (reqDoc.providerId) {
-        await Provider.findByIdAndUpdate(reqDoc.providerId, { pendingCategory: '' });
-      }
+      // Either outcome clears the pending flag.
+      provider.pendingCategory = '';
+      await provider.save();
     }
 
     reqDoc.status = status;

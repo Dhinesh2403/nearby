@@ -7,7 +7,7 @@ import { ApiService, Provider, PaginatedResponse, ApiResponse } from '../../core
 import { AuthService } from '../../core/auth/auth.service';
 import { ToastService } from '../../core/services/toast.service';
 import { ChatService } from '../../core/services/chat.service';
-import { DISTRICTS }   from '../../core/constants';
+import { DISTRICTS, PROVIDER_HIGHLIGHTS }   from '../../core/constants';
 import { BannerAdComponent } from '../../shared/components/banner-ad.component';
 import { SkeletonLoaderComponent } from '../../shared/components/skeleton-loader.component';
 import { JdSearchBarComponent } from '../../shared/components/jd-search-bar.component';
@@ -29,7 +29,7 @@ import { ContactLoginModalComponent } from '../../shared/components/contact-logi
       </div>
 
       <!-- FILTER CHIPS ROW (11.10) -->
-      <div class="chips-wrap" (click)="sortOpen() && sortOpen.set(false)">
+      <div class="chips-wrap" (click)="closeDrops()">
         <div class="container chips-row">
 
           <!-- Sort chip is kept OUTSIDE the scrollable chips-scroll div so its
@@ -52,6 +52,52 @@ import { ContactLoginModalComponent } from '../../shared/components/contact-logi
               </div>
             }
           </div>
+
+          <!-- Category dropdown — kept outside the scroll container so its menu isn't clipped -->
+          <div class="chip-wrap">
+            <button class="chip" [class.on]="cat() !== 'all'"
+                    (click)="$event.stopPropagation(); catOpen.set(!catOpen()); sortOpen.set(false); subCatOpen.set(false)">
+              <i class="bi bi-grid"></i>
+              {{ cat() === 'all' ? 'Category' : catLabel(cat()) }}
+              <i class="bi" [class.bi-chevron-down]="!catOpen()" [class.bi-chevron-up]="catOpen()"></i>
+            </button>
+            @if (catOpen()) {
+              <div class="chip-drop chip-drop-scroll" (click)="$event.stopPropagation()">
+                @for (c of cats(); track c.id) {
+                  <button class="chip-opt" [class.active]="cat() === c.id" (click)="setCat(c.id); catOpen.set(false)">
+                    @if (cat() === c.id) { <i class="bi bi-check2"></i> } @else { <i class="bi bi-dash" style="opacity:0"></i> }
+                    {{ c.label }}
+                  </button>
+                }
+              </div>
+            }
+          </div>
+
+          <!-- Sub-category dropdown — only when the selected category has any -->
+          @if (subCats().length) {
+            <div class="chip-wrap">
+              <button class="chip" [class.on]="subCat() !== 'all'"
+                      (click)="$event.stopPropagation(); subCatOpen.set(!subCatOpen()); sortOpen.set(false); catOpen.set(false)">
+                <i class="bi bi-tag"></i>
+                {{ subCat() === 'all' ? 'Sub-category' : subCat() }}
+                <i class="bi" [class.bi-chevron-down]="!subCatOpen()" [class.bi-chevron-up]="subCatOpen()"></i>
+              </button>
+              @if (subCatOpen()) {
+                <div class="chip-drop chip-drop-scroll" (click)="$event.stopPropagation()">
+                  <button class="chip-opt" [class.active]="subCat() === 'all'" (click)="setSubCat('all'); subCatOpen.set(false)">
+                    @if (subCat() === 'all') { <i class="bi bi-check2"></i> } @else { <i class="bi bi-dash" style="opacity:0"></i> }
+                    All sub-categories
+                  </button>
+                  @for (s of subCats(); track s) {
+                    <button class="chip-opt" [class.active]="subCat() === s" (click)="setSubCat(s); subCatOpen.set(false)">
+                      @if (subCat() === s) { <i class="bi bi-check2"></i> } @else { <i class="bi bi-dash" style="opacity:0"></i> }
+                      {{ s }}
+                    </button>
+                  }
+                </div>
+              }
+            </div>
+          }
 
           <!-- Separate scrollable container for filter chips -->
           <div class="chips-scroll">
@@ -97,8 +143,8 @@ import { ContactLoginModalComponent } from '../../shared/components/contact-logi
             } @else {
               @for (p of providers(); track p._id) {
                 <!-- HORIZONTAL CARD (11.11) -->
-                <div class="jcard" data-testid="provider-card">
-                  <a class="jcard-thumb" [routerLink]="['/provider', p._id]" [style.background]="catColor(p.category)">
+                <div class="jcard" data-testid="provider-card" [routerLink]="['/provider', p._id]">
+                  <a class="jcard-thumb"  [style.background]="catColor(p.category)">
                     @if (p.images && p.images.length) { <img [src]="p.images[0]" [alt]="p.businessName" /> }
                     @else { <span class="jthumb-init">{{ p.businessName.charAt(0) }}</span> }
                   </a>
@@ -112,12 +158,14 @@ import { ContactLoginModalComponent } from '../../shared/components/contact-logi
                       <span class="jrate-cnt">{{ p.ratingCount }} Ratings</span>
                       <span class="jexp">· {{ p.experience }} yrs</span>
                     </div>
-                    <!-- badges (11.13) -->
+                    <!-- badges (11.13): admin-set Verified + provider-chosen highlights -->
                     <div class="jbadges">
-                      @if (p.ratingAvg >= 4.7) { <span class="jb jb-trust"><i class="bi bi-award-fill"></i>Trust</span> }
                       @if (p.isVerified) { <span class="jb jb-verified"><i class="bi bi-patch-check-fill"></i>Verified</span> }
-                      @if (p.ratingCount >= 100) { <span class="jb jb-popular"><i class="bi bi-fire"></i>Popular</span> }
-                      @if (p.isVerified) { <span class="jb jb-claimed"><i class="bi bi-check2-circle"></i>Claimed</span> }
+                      @for (h of (p.highlights || []); track h) {
+                        @if (highlightMeta(h); as hm) {
+                          <span class="jb jb-hl"><i class="bi" [ngClass]="hm.icon"></i>{{ hm.label }}</span>
+                        }
+                      }
                     </div>
                     <!-- location + keyword highlights (11.14) -->
                     <p class="jcard-loc"><i class="bi bi-geo-alt-fill"></i>
@@ -129,9 +177,6 @@ import { ContactLoginModalComponent } from '../../shared/components/contact-logi
                         @for (s of p.skills.slice(0,3); track s) { <span class="jtag">{{ s }}</span> }
                       </div>
                     }
-                    <!-- performance tag (11.15) -->
-                    @if (p.ratingAvg >= 4.5) { <p class="jperf"><i class="bi bi-lightning-charge-fill"></i>High call pick up rate</p> }
-
                     <!-- action buttons (11.16) -->
                     <div class="jactions">
                       @if (revealedPhones()[p._id]) {
@@ -202,6 +247,7 @@ import { ContactLoginModalComponent } from '../../shared/components/contact-logi
     .chip-opt { display:flex; align-items:center; gap:8px; width:100%; padding:9px 16px; background:none; border:none; font-family:var(--font-display); font-size:.82rem; font-weight:600; color:var(--nb-text); cursor:pointer; text-align:left; transition:background .1s; }
     .chip-opt:hover { background:var(--nb-surface-2); }
     .chip-opt.active { color:var(--nb-primary); }
+    .chip-drop-scroll { max-height:320px; overflow-y:auto; }
     .chip-clear { color:var(--nb-danger); }
     .res-hdr { display:flex; align-items:center; gap:10px; margin-bottom:.75rem; }
     .res-count { font-family:var(--font-display); font-weight:700; font-size:.95rem; }
@@ -221,16 +267,13 @@ import { ContactLoginModalComponent } from '../../shared/components/contact-logi
     .jrate-cnt, .jexp { font-size:.78rem; color:var(--nb-text-muted); }
     .jbadges { display:flex; flex-wrap:wrap; gap:5px; margin:6px 0; }
     .jb { display:inline-flex; align-items:center; gap:3px; font-size:.66rem; font-weight:700; padding:2px 8px; border-radius:12px; text-transform:uppercase; letter-spacing:.03em; }
-    .jb-trust { background:#FEF3C7; color:#92400e; }
     .jb-verified { background:#DBEAFE; color:#1e40af; }
-    .jb-popular { background:#FFEDD5; color:#9a3412; }
-    .jb-claimed { background:#1f2937; color:#fff; }
+    .jb-hl { background:#ECFDF5; color:#065f46; }
     .jcard-loc { font-size:.8rem; color:var(--nb-text-muted); margin:4px 0; display:flex; align-items:center; gap:5px; }
     .jcard-loc i { color:var(--nb-danger); }
     .jcat { color:var(--nb-text-muted); }
     .jtags { display:flex; flex-wrap:wrap; gap:5px; margin:4px 0; }
     .jtag { background:var(--nb-surface-2); color:var(--nb-text-muted); border-radius:6px; padding:2px 9px; font-size:.72rem; font-weight:500; }
-    .jperf { font-size:.75rem; color:#1a7a4a; font-weight:600; margin:4px 0; display:flex; align-items:center; gap:4px; }
     .jactions { display:flex; flex-wrap:wrap; gap:8px; margin-top:8px; }
     .jbtn { display:inline-flex; align-items:center; gap:6px; border:none; border-radius:8px; padding:8px 16px; font-family:var(--font-display); font-weight:700; font-size:.82rem; cursor:pointer; text-decoration:none; transition:opacity .15s; }
     .jbtn:hover { opacity:.88; }
@@ -297,7 +340,9 @@ export class BrowseComponent implements OnInit {
   totalPages  = computed(() => Math.ceil(this.total() / 12));
   pageNumbers = computed(() => Array.from({ length: this.totalPages() }, (_, i) => i + 1).slice(0, 7));
 
-  cats = [
+  // Loaded from /api/categories so newly approved categories appear in the
+  // filter automatically. The hardcoded list below is the offline fallback.
+  cats = signal<{ id: string; label: string; color?: string; subCategories?: string[] }[]>([
     { id:'all',             label:'All' },
     { id:'home_services',   label:'Home Services' },
     { id:'education',       label:'Education' },
@@ -325,7 +370,15 @@ export class BrowseComponent implements OnInit {
     { id:'printing',        label:'Printing' },
     { id:'security',        label:'Security' },
     { id:'agriculture',     label:'Agriculture' },
-  ];
+  ]);
+
+  // Filter dropdown state.
+  subCat     = signal('all');
+  catOpen    = signal(false);
+  subCatOpen = signal(false);
+
+  // Sub-categories of the currently selected category (empty for 'all').
+  subCats = computed(() => this.cats().find(c => c.id === this.cat())?.subCategories ?? []);
 
   constructor(
     private api: ApiService, private route: ActivatedRoute, private router: Router,
@@ -340,9 +393,21 @@ export class BrowseComponent implements OnInit {
   }
 
   ngOnInit() {
+    // Live category list (with sub-categories + colours) for the filter.
+    this.api.get<ApiResponse<any[]>>('/categories').subscribe({
+      next: res => {
+        const list = (res.data ?? []).map(c => ({
+          id: c.id, label: c.label, color: c.color, subCategories: c.subCategories ?? [],
+        }));
+        if (list.length) this.cats.set([{ id: 'all', label: 'All' }, ...list]);
+      },
+      error: () => { /* keep fallback list */ },
+    });
+
     this.route.queryParams.subscribe(p => {
-      if (p['category']) this.cat.set(p['category']);
-      if (p['q'])        { this.q = p['q']; this.lead.service = p['q']; }
+      if (p['category'])    this.cat.set(p['category']);
+      if (p['subCategory']) this.subCat.set(p['subCategory']);
+      if (p['q'])           { this.q = p['q']; this.lead.service = p['q']; }
       this.district.set(p['district'] ?? this.auth.currentUser()?.location?.district ?? '');
       this.load();
     });
@@ -352,6 +417,7 @@ export class BrowseComponent implements OnInit {
     this.loading.set(true);
     const params: Record<string, any> = { page: this.page(), limit: 12, sort: this.sort };
     if (this.cat() !== 'all')     params['category'] = this.cat();
+    if (this.subCat() !== 'all')  params['subCategory'] = this.subCat();
     if (this.minRating() > 0)     params['rating']   = this.minRating();
     if (this.onlineOnly())        params['isOnline']  = true;
     if (this.verifiedOnly())      params['verified']  = true;
@@ -372,6 +438,9 @@ export class BrowseComponent implements OnInit {
   onSearch2(e: { location: string; q: string }) {
     this.q = e.q;
     if (e.location) this.district.set(e.location);
+    // A keyword search is a fresh, cross-category lookup — don't keep it scoped
+    // to whatever category the user arrived with (e.g. from a homepage tile).
+    if (e.q.trim()) { this.cat.set('all'); this.subCat.set('all'); }
     this.page.set(1);
     this.load();
   }
@@ -380,18 +449,26 @@ export class BrowseComponent implements OnInit {
   toggleVerified()        { this.verifiedOnly.set(!this.verifiedOnly()); this.page.set(1); this.load(); }
   toggleOnline()          { this.onlineOnly.set(!this.onlineOnly()); this.page.set(1); this.load(); }
   setSort(v: string)      { this.sort = v; this.sortOpen.set(false); this.page.set(1); this.load(); }
-  setCat(id: string)      { this.cat.set(id); this.page.set(1); this.load(); }
+  setCat(id: string)      { this.cat.set(id); this.subCat.set('all'); this.page.set(1); this.load(); }
+  setSubCat(s: string)    { this.subCat.set(s); this.page.set(1); this.load(); }
   changePage(n: number)   { this.page.set(n); this.load(); window.scrollTo(0, 0); }
 
+  closeDrops() { this.sortOpen.set(false); this.catOpen.set(false); this.subCatOpen.set(false); }
+
   clearAll() {
-    this.q = ''; this.cat.set('all'); this.minRating.set(0);
+    this.q = ''; this.cat.set('all'); this.subCat.set('all'); this.minRating.set(0);
     this.onlineOnly.set(false); this.verifiedOnly.set(false);
     this.sort = 'rating'; this.sortOpen.set(false);
     this.page.set(1); this.load();
   }
 
-  catLabel(id: string) { return this.cats.find(c => c.id === id)?.label ?? id; }
+  // Look up a provider-chosen highlight's label + icon for card rendering.
+  highlightMeta(value: string) { return PROVIDER_HIGHLIGHTS.find(h => h.value === value); }
+
+  catLabel(id: string) { return this.cats().find(c => c.id === id)?.label ?? id; }
   catColor(id: string) {
+    const fromApi = this.cats().find(c => c.id === id)?.color;
+    if (fromApi) return fromApi;
     const m: Record<string,string> = {
       home_services:'#2563A8', education:'#059669', food:'#D97706',
       bakery:'#B45309', beauty_salon:'#DB2777', fitness:'#0891B2',

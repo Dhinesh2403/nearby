@@ -15,6 +15,14 @@ export const jwtInterceptor: HttpInterceptorFn = (req, next) => {
 
   return next(authReq).pipe(
     catchError((error: HttpErrorResponse) => {
+      // Account deactivated mid-session → log out immediately (don't refresh).
+      // Auth routes are skipped: the login page shows the message itself.
+      if (error.status === 403 && error.error?.code === 'ACCOUNT_DEACTIVATED'
+          && !req.url.includes('/auth/')) {
+        auth.forceLogout(error.error?.message);
+        return throwError(() => error);
+      }
+
       // 401 on a non-auth route → try to refresh the token silently
       if (error.status === 401 && !req.url.includes('/auth/')) {
         return auth.refreshToken().pipe(

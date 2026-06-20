@@ -6,6 +6,7 @@ import { RouterLink, Router } from '@angular/router';
 import { ApiService, ApiResponse, Provider } from '../../core/services/api.service';
 import { ToastService } from '../../core/services/toast.service';
 import { UploadService } from '../../core/services/upload.service';
+import { PROVIDER_HIGHLIGHTS, MAX_HIGHLIGHTS } from '../../core/constants';
 
 @Component({
   selector: 'app-provider-edit',
@@ -115,6 +116,22 @@ import { UploadService } from '../../core/services/upload.service';
                      (keydown)="onTagKey($event)" (blur)="commitTag()" />
             </div>
           </div>
+          <div class="mb-3">
+            <label class="nb-label">Highlights
+              <span class="text-muted-nb" style="font-weight:400">(pick up to {{ maxHighlights }} — shown as badges on your card)</span>
+            </label>
+            <div class="hl-grid">
+              @for (h of highlightOptions; track h.value) {
+                <button type="button" class="hl-chip" [class.on]="form.highlights.includes(h.value)"
+                        [disabled]="!form.highlights.includes(h.value) && form.highlights.length >= maxHighlights"
+                        (click)="toggleHighlight(h.value)">
+                  <i class="bi" [ngClass]="h.icon"></i>{{ h.label }}
+                </button>
+              }
+            </div>
+            <p class="text-muted-nb mb-0 mt-1" style="font-size:.72rem">{{ form.highlights.length }}/{{ maxHighlights }} selected</p>
+          </div>
+
           <div class="mb-1">
             <label class="nb-check">
               <input type="checkbox" [(ngModel)]="form.isOnline" />
@@ -195,6 +212,11 @@ import { UploadService } from '../../core/services/upload.service';
     .tag-chip { display:inline-flex; align-items:center; gap:5px; background:#EFF6FF; color:var(--nb-primary); border-radius:6px; padding:4px 8px; font-size:.8rem; font-weight:600; font-family:var(--font-display); }
     .tag-chip button { background:none; border:none; color:var(--nb-primary); cursor:pointer; padding:0; display:flex; line-height:1; }
     .tag-field { border:none; outline:none; background:transparent; font-family:var(--font-body); font-size:.875rem; flex:1; min-width:120px; padding:4px 0; }
+    .hl-grid   { display:flex; flex-wrap:wrap; gap:8px; }
+    .hl-chip   { display:inline-flex; align-items:center; gap:6px; border:1.5px solid var(--nb-border); background:var(--nb-bg); border-radius:20px; padding:7px 14px; font-family:var(--font-display); font-size:.8rem; font-weight:600; color:var(--nb-text-muted); cursor:pointer; transition:all .15s; }
+    .hl-chip:hover:not(:disabled) { border-color:var(--nb-primary); color:var(--nb-primary); }
+    .hl-chip.on { background:var(--nb-primary); border-color:var(--nb-primary); color:#fff; }
+    .hl-chip:disabled { opacity:.45; cursor:not-allowed; }
     .nb-check  { display:flex;align-items:center;gap:8px;font-size:.875rem;cursor:pointer; }
     .nb-check input { width:16px;height:16px; }
     .days-wrap { display:flex;flex-wrap:wrap;gap:8px; }
@@ -226,6 +248,8 @@ export class ProviderEditComponent implements OnInit {
 
   tagDraft   = '';
   allDays    = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+  highlightOptions = PROVIDER_HIGHLIGHTS;
+  maxHighlights    = MAX_HIGHLIGHTS;
 
   // Populated from /api/categories (single source of truth). Falls back to a
   // minimal set if the request fails so the form is never empty.
@@ -245,7 +269,7 @@ export class ProviderEditComponent implements OnInit {
   form = {
     businessName: '', tagline: '', bio: '',
     category: 'home_services', pendingCategory: '', subCategory: '',
-    skills: [] as string[], experience: 0, price: 0, priceMax: 0, isOnline: false,
+    skills: [] as string[], highlights: [] as string[], experience: 0, price: 0, priceMax: 0, isOnline: false,
     images: [] as string[],
     availability: { days: ['Mon','Tue','Wed','Thu','Fri'] as string[], startTime: '09:00', endTime: '18:00' },
   };
@@ -273,6 +297,7 @@ export class ProviderEditComponent implements OnInit {
         this.form.pendingCategory = (p as any).pendingCategory ?? '';
         this.form.subCategory  = p.subCategory ?? '';
         this.form.skills       = p.skills ?? [];
+        this.form.highlights   = p.highlights ?? [];
         this.form.experience   = p.experience ?? 0;
         this.form.price        = p.price ?? 0;
         this.form.priceMax     = p.priceMax ?? 0;
@@ -341,6 +366,15 @@ export class ProviderEditComponent implements OnInit {
   }
   removeTag(i: number) { this.form.skills = this.form.skills.filter((_, idx) => idx !== i); }
 
+  // Toggle a highlight badge, enforcing the max-pick cap.
+  toggleHighlight(v: string) {
+    if (this.form.highlights.includes(v)) {
+      this.form.highlights = this.form.highlights.filter(x => x !== v);
+    } else if (this.form.highlights.length < this.maxHighlights) {
+      this.form.highlights = [...this.form.highlights, v];
+    }
+  }
+
   // Re-open the request panel to change a category that's still pending.
   editCategoryRequest() {
     this.reqName = this.form.pendingCategory;
@@ -388,7 +422,13 @@ export class ProviderEditComponent implements OnInit {
 
     if (this.isNew()) {
       this.api.post<ApiResponse<Provider>>('/providers', payload).subscribe({
-        next: res => { done('Service profile created.'); this.providerId = res.data._id; this.isNew.set(false); },
+        next: res => {
+          done('Service profile created.');
+          this.providerId = res.data._id;
+          this.isNew.set(false);
+          // Show them their live public profile, exactly as customers see it.
+          this.router.navigate(['/provider', res.data._id]);
+        },
         error: err => failHandler(err.error?.message),
       });
     } else {

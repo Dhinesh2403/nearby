@@ -8,6 +8,7 @@ import { Router, ActivatedRoute } from '@angular/router';
 import { FirebaseAuthService } from '../../core/auth/firebase-auth.service';
 import { AuthService } from '../../core/auth/auth.service';
 import { ToastService } from '../../core/services/toast.service';
+import { SettingsService } from '../../core/services/settings.service';
 
 type Mode = 'login' | 'signup';
 type Step = 'phone' | 'password' | 'otp' | 'profile' | 'setpass';
@@ -74,12 +75,12 @@ type Step = 'phone' | 'password' | 'otp' | 'profile' | 'setpass';
                        maxlength="10" inputmode="numeric" placeholder="98765 43210"
                        (keyup.enter)="onContinue()" />
               </div>
-              @if (!fb.isConfigured && mode()==='signup') {
+              @if (!fb.isConfigured && mode()==='signup' && settings.otpRequired()) {
                 <p class="cfg-note"><i class="bi bi-info-circle me-1"></i>Firebase OTP not configured on this build</p>
               }
               <button class="auth-btn mt-3" type="button" (click)="onContinue()" [disabled]="busy()">
                 @if (busy()) { <span class="mini-spin"></span>Checking… }
-                @else { {{ mode()==='login' ? 'Continue' : 'Send OTP' }} <i class="bi bi-arrow-right ms-1"></i> }
+                @else { {{ (mode()==='login' || !settings.otpRequired()) ? 'Continue' : 'Send OTP' }} <i class="bi bi-arrow-right ms-1"></i> }
               </button>
               <p class="switch-hint">
                 @if (mode()==='login') {
@@ -358,6 +359,9 @@ export class LoginComponent implements OnInit {
 
   isForgot  = false;
   isNewUser = false;
+  // OTP-skip mode: admin turned phone verification off, so we create/reset the
+  // account directly via register-direct instead of exchanging a Firebase token.
+  direct    = false;
   private pendingToken = '';
 
   features = [
@@ -373,6 +377,7 @@ export class LoginComponent implements OnInit {
     private toast: ToastService,
     private router: Router,
     private route:  ActivatedRoute,
+    public  settings: SettingsService,
   ) {}
 
   ngOnInit() {
@@ -391,28 +396,41 @@ export class LoginComponent implements OnInit {
   onContinue() {
     this.error.set('');
     if (!/^\d{10}$/.test(this.phone)) { this.error.set('Enter a valid 10-digit mobile number.'); return; }
-    if (this.mode() === 'signup') {
-      this.sendOtp();
-    } else {
-      this.busy.set(true);
-      this.auth.checkPhone(this.phone).subscribe({
-        next: (res: any) => {
-          const { exists, hasPassword } = res.data ?? res;
-          this.busy.set(false);
+    // A returning user with a password always signs in with it. For everyone
+    // else (new sign-ups, or verified users who never set a password) we either
+    // send an OTP or — when the admin has turned OTP off — skip straight to the
+    // direct account-creation flow. checkPhone tells us new vs existing either way.
+    this.busy.set(true);
+    this.auth.checkPhone(this.phone).subscribe({
+      next: (res: any) => {
+        const { exists, hasPassword } = res.data ?? res;
+        this.busy.set(false);
+
+        if (this.mode() === 'login') {
           if (!exists) {
             // Unknown number → offer to sign up
             this.error.set('No account found for this number. Switch to Sign Up?');
             return;
           }
-          if (hasPassword) {
-            this.step.set('password');
-          } else {
-            this.sendOtp(); // existing user, no password yet
-          }
-        },
-        error: (msg: string) => { this.busy.set(false); this.error.set(msg); },
-      });
-    }
+          if (hasPassword) { this.step.set('password'); return; }
+        } else if (exists && hasPassword) {
+          // Sign-up for a number that already has an account → send them to login.
+          this.error.set('This number already has an account. Please log in instead.');
+          return;
+        }
+
+        if (!this.settings.otpRequired()) {
+          // OTP disabled by admin → skip verification entirely. New numbers
+          // collect a profile first; existing ones just set a password.
+          this.direct    = true;
+          this.isNewUser = !exists;
+          this.step.set(this.isNewUser ? 'profile' : 'setpass');
+        } else {
+          this.sendOtp();
+        }
+      },
+      error: (msg: string) => { this.busy.set(false); this.error.set(msg); },
+    });
   }
 
   // ── Password login ─────────────────────────────────────────────────
@@ -429,6 +447,13 @@ export class LoginComponent implements OnInit {
   // ── Forgot password ────────────────────────────────────────────────
   doForgot() {
     this.isForgot = true;
+    this.error.set('');
+    if (!this.settings.otpRequired()) {
+      // OTP disabled → reset the password directly, no verification step.
+      this.direct = true;
+      this.step.set('setpass');
+      return;
+    }
     this.sendOtp();
   }
 
@@ -494,7 +519,12 @@ export class LoginComponent implements OnInit {
     const role = this.isNewUser ? this.profileRole : 'customer';
 
     this.busy.set(true);
-    this.auth.firebaseVerify(this.pendingToken, role, profile, this.newPassword).subscribe({
+    // OTP disabled → create/reset the account directly; otherwise exchange the
+    // verified Firebase token for a session.
+    const req$ = this.direct
+      ? this.auth.registerDirect(this.phone, role, profile, this.newPassword, this.isForgot)
+      : this.auth.firebaseVerify(this.pendingToken, role, profile, this.newPassword);
+    req$.subscribe({
       next: ()  => this.navigateToDashboard(this.isForgot ? 'Password updated!' : 'Welcome to NearBy!'),
       error: (msg: string) => { this.busy.set(false); this.error.set(msg); },
     });
@@ -506,6 +536,7 @@ export class LoginComponent implements OnInit {
     this.code     = '';
     this.password = '';
     this.isForgot = false;
+    this.direct   = false;
     this.fb.reset();
     this.step.set('phone');
   }

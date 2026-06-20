@@ -13,6 +13,14 @@ const invalidCategory = async (category) => {
   return exists ? '' : 'That category is not available. Please choose another.';
 };
 
+// Provider-chosen highlight badges. Keep in sync with PROVIDER_HIGHLIGHTS in the
+// frontend constants. Anything not in this list is dropped, and at most 3 are kept.
+const HIGHLIGHT_VALUES = ['quick_response', 'free_consultation', 'home_visits', 'emergency_24x7', 'affordable', 'experienced'];
+const MAX_HIGHLIGHTS = 3;
+const cleanHighlights = (val) => Array.isArray(val)
+  ? [...new Set(val.filter(v => HIGHLIGHT_VALUES.includes(v)))].slice(0, MAX_HIGHLIGHTS)
+  : [];
+
 // How many rewarded ads must be watched to unlock the visitor list —
 // admin-configurable via AppSettings (5.12), default 2.
 const adsRequired = async () => (await AppSettings.getSingleton()).adsRequiredCount ?? 2;
@@ -57,12 +65,13 @@ const completionPct = (p) => {
 // GET /api/providers — browse with filters + keyword search (7.10)
 router.get('/', async (req, res, next) => {
   try {
-    const { category, isOnline, rating, city, district, search, page = 1, limit = 12, sort = 'rating' } = req.query;
+    const { category, subCategory, isOnline, rating, city, district, search, page = 1, limit = 12, sort = 'rating' } = req.query;
 
     const filter = { status: 'active', isVerified: true };
-    if (category && category !== 'all') filter.category = category;
-    if (isOnline === 'true')            filter.isOnline  = true;
-    if (rating)                         filter.ratingAvg = { $gte: +rating };
+    if (category && category !== 'all')       filter.category = category;
+    if (subCategory && subCategory !== 'all') filter.subCategory = subCategory;
+    if (isOnline === 'true')                  filter.isOnline  = true;
+    if (rating)                               filter.ratingAvg = { $gte: +rating };
 
     // Fuzzy keyword search across business name, sub-category, skills and bio.
     if (search && search.trim()) {
@@ -318,6 +327,16 @@ router.post('/:id/view', async (req, res, next) => {
         customerId = decoded.userId;
       } catch { /* ignore — treat as guest */ }
     }
+
+    // Don't count views from providers or admins — only genuine customer/guest
+    // visits should inflate a provider's view stats.
+    if (customerId) {
+      const viewer = await User.findById(customerId).select('role');
+      if (viewer && (viewer.role === 'provider' || viewer.role === 'admin')) {
+        return ok(res, null, 'View logged.');
+      }
+    }
+
     await ProfileView.create({
       providerId: req.params.id,
       customerId,
@@ -379,6 +398,7 @@ router.post('/', protect, authorize('provider'), async (req, res, next) => {
     if (badCat) return fail(res, badCat);
     const p = await Provider.create({
       ...req.body,
+      highlights: cleanHighlights(req.body.highlights),
       userId:     req.user._id,
       status:     'active',
       isVerified: true,
@@ -394,6 +414,7 @@ router.put('/:id', protect, authorize('provider'), async (req, res, next) => {
       const badCat = await invalidCategory(req.body.category);
       if (badCat) return fail(res, badCat);
     }
+    if (req.body.highlights !== undefined) req.body.highlights = cleanHighlights(req.body.highlights);
     const p = await Provider.findOneAndUpdate(
       { _id: req.params.id, userId: req.user._id },
       req.body,

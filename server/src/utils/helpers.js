@@ -11,8 +11,10 @@ const paginated = (res, data, total, page, limit) =>
     pagination: { total, page: +page, limit: +limit, pages: Math.ceil(total / limit) },
   });
 
-const fail = (res, msg = 'Error', status = 400) =>
-  res.status(status).json({ success: false, message: msg });
+// `code` is an optional machine-readable tag (e.g. ACCOUNT_DEACTIVATED) so the
+// client can react to specific failures without string-matching the message.
+const fail = (res, msg = 'Error', status = 400, code) =>
+  res.status(status).json({ success: false, message: msg, ...(code ? { code } : {}) });
 
 
 // ─────────────────────────────────────────────────────────────

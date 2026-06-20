@@ -5,6 +5,7 @@ import { Router }      from '@angular/router';
 import { tap, catchError } from 'rxjs/operators';
 import { throwError }  from 'rxjs';
 import { environment } from '../../../environments/environment';
+import { ToastService } from '../services/toast.service';
 
 export interface User {
   _id:      string;
@@ -25,7 +26,10 @@ export class AuthService {
   readonly isLoggedIn  = computed(() => this.currentUser() !== null);
   readonly userRole    = computed(() => this.currentUser()?.role ?? null);
 
-  constructor(private http: HttpClient, private router: Router) {}
+  constructor(private http: HttpClient, private router: Router, private toast: ToastService) {}
+
+  // Guards against multiple in-flight 403s all firing a logout at once.
+  private forcedOut = false;
 
   // Check if a phone number already has an account and whether a password is set.
   checkPhone(phone: string) {
@@ -83,6 +87,16 @@ export class AuthService {
   logout() {
     this.http.post(`${this.API}/logout`, {}).subscribe();
     this.clearSession();
+  }
+
+  // Force a logout triggered by the server (e.g. admin deactivated the account).
+  // Clears the session, shows why, and sends the user to the login page.
+  forceLogout(message = 'Your account has been deactivated by the admin.') {
+    if (this.forcedOut || !this.isLoggedIn()) return;
+    this.forcedOut = true;
+    this.clearSession();
+    this.toast.error(message);
+    this.router.navigate(['/auth/login']).finally(() => { this.forcedOut = false; });
   }
 
   // Load the full profile (includes phone + location, which the

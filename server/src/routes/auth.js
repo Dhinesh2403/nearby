@@ -42,7 +42,7 @@ router.post('/login-phone', async (req, res, next) => {
 
     const user = await User.findOne({ phone }).select('+passwordHash');
     if (!user)          return fail(res, 'No account found with this number.', 404);
-    if (!user.isActive) return fail(res, 'Account suspended.', 403);
+    if (!user.isActive) return fail(res, 'Your account has been deactivated by the admin. Please contact support.', 403, 'ACCOUNT_DEACTIVATED');
     if (!user.hasPassword) return fail(res, 'Please verify your number to sign in.', 400);
 
     const match = await user.isPasswordCorrect(password, user.passwordHash);
@@ -139,7 +139,7 @@ router.post('/firebase-verify', async (req, res, next) => {
       if (changed) await user.save();
     }
 
-    if (!user.isActive) return fail(res, 'Account suspended.', 403);
+    if (!user.isActive) return fail(res, 'Your account has been deactivated by the admin. Please contact support.', 403, 'ACCOUNT_DEACTIVATED');
 
     const { accessToken, refreshToken } = generateTokens(user._id);
     await User.findByIdAndUpdate(user._id, { refreshToken });
@@ -215,7 +215,7 @@ router.post('/register-direct', async (req, res, next) => {
       await user.save();
     }
 
-    if (!user.isActive) return fail(res, 'Account suspended.', 403);
+    if (!user.isActive) return fail(res, 'Your account has been deactivated by the admin. Please contact support.', 403, 'ACCOUNT_DEACTIVATED');
 
     const { accessToken, refreshToken } = generateTokens(user._id);
     await User.findByIdAndUpdate(user._id, { refreshToken });
@@ -242,6 +242,9 @@ router.post('/refresh-token', async (req, res, next) => {
     const user    = await User.findById(decoded.userId).select('+refreshToken');
     if (!user || user.refreshToken !== refreshToken)
       return fail(res, 'Invalid refresh token.', 401);
+    // A deactivated account must not be able to mint a fresh access token.
+    if (!user.isActive)
+      return fail(res, 'Your account has been deactivated by the admin.', 403, 'ACCOUNT_DEACTIVATED');
 
     const newAccess = jwt.sign(
       { userId: user._id },

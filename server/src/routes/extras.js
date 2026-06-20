@@ -261,6 +261,10 @@ adminRouter.put('/providers/:id/ban', async (req, res, next) => {
       body:  'Your listing was suspended and your account deactivated by the admin.' + (req.body.reason ? ` Reason: ${req.body.reason}` : ''),
       link:  '/dashboard/provider',
     });
+    // Real-time: log the provider out of any active session immediately.
+    if (p.userId?._id)
+      req.app.locals.io?.notifyUser?.(p.userId._id.toString(), 'auth:deactivated',
+        { message: 'Your account has been deactivated by the admin.' });
     ok(res, p, 'Provider deactivated.');
   } catch (e) { next(e); }
 });
@@ -315,6 +319,9 @@ adminRouter.put('/users/:id/ban', async (req, res, next) => {
       body:  'Your account has been deactivated by the admin. You can no longer sign in.',
       link:  '/',
     });
+    // Real-time: log the user out of any active session immediately.
+    req.app.locals.io?.notifyUser?.(u._id.toString(), 'auth:deactivated',
+      { message: 'Your account has been deactivated by the admin.' });
     ok(res, u, 'User deactivated.');
   } catch (e) { next(e); }
 });

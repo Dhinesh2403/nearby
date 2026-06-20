@@ -28,6 +28,7 @@ export class NotificationService {
 
   private timer: any = null;
   private sub?: Subscription;
+  private deSub?: Subscription;
 
   // Fetch the latest notifications for the logged-in user.
   // Chat messages have their own indicator, so exclude type 'message'.
@@ -66,6 +67,11 @@ export class NotificationService {
         this.toast.info(p?.title ? `${p.title}${p?.body ? ' — ' + p.body : ''}` : 'New notification');
         this.load();
       });
+
+      // Admin deactivated this account → log out of the live session right away.
+      this.deSub = this.socket.onDeactivated().subscribe((p: any) => {
+        this.auth.forceLogout(p?.message);
+      });
     }
 
     this.timer = setInterval(() => this.load(), 30000);   // fallback poll
@@ -76,6 +82,8 @@ export class NotificationService {
     if (this.timer) { clearInterval(this.timer); this.timer = null; }
     this.sub?.unsubscribe();
     this.sub = undefined;
+    this.deSub?.unsubscribe();
+    this.deSub = undefined;
     this.notifications.set([]);
   }
 }

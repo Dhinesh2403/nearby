@@ -8,6 +8,7 @@ import { ChatService }    from '../../core/services/chat.service';
 import { AuthService }    from '../../core/auth/auth.service';
 import { ToastService }   from '../../core/services/toast.service';
 import { ContactLoginModalComponent } from '../../shared/components/contact-login-modal.component';
+import { PROVIDER_HIGHLIGHTS } from '../../core/constants';
 
 interface Review { id:string; name:string; initial:string; color:string; rating:number; text:string; date:string; tags:string[]; images:string[]; }
 
@@ -127,12 +128,13 @@ interface Review { id:string; name:string; initial:string; color:string; rating:
                     {{ provider()!.ratingAvg }} <i class="bi bi-star-fill"></i>
                   </span>
                   <span class="pp-rating-count">{{ provider()!.ratingCount }} Ratings</span>
-                  @if (provider()!.ratingAvg >= 4.7) {
-                    <span class="pp-badge pp-badge-trust"><i class="bi bi-award-fill"></i>Trust</span>
-                  }
                   @if (provider()!.isVerified) {
                     <span class="pp-badge pp-badge-verified"><i class="bi bi-patch-check-fill"></i>Verified</span>
-                    <span class="pp-badge pp-badge-claimed"><i class="bi bi-check2-circle"></i>Claimed</span>
+                  }
+                  @for (h of (provider()!.highlights || []); track h) {
+                    @if (highlightMeta(h); as hm) {
+                      <span class="pp-badge pp-badge-hl"><i class="bi" [ngClass]="hm.icon"></i>{{ hm.label }}</span>
+                    }
                   }
                 </div>
 
@@ -499,9 +501,8 @@ interface Review { id:string; name:string; initial:string; color:string; rating:
     .pp-crumb i { font-size:.6rem; }
     .pp-crumb-cur { color:var(--nb-text); font-weight:600; }
     .pp-badge { display:inline-flex; align-items:center; gap:3px; font-size:.66rem; font-weight:700; padding:3px 9px; border-radius:12px; text-transform:uppercase; letter-spacing:.03em; }
-    .pp-badge-trust { background:#FEF3C7; color:#92400e; }
     .pp-badge-verified { background:#DBEAFE; color:#1e40af; }
-    .pp-badge-claimed { background:#1f2937; color:#fff; }
+    .pp-badge-hl { background:#ECFDF5; color:#065f46; }
     .pp-open { color:#1a7a4a; font-weight:700; display:inline-flex; align-items:center; gap:4px; }
     .pp-open.closed { color:var(--nb-danger); }
     .pp-keywords { display:flex; flex-wrap:wrap; gap:6px; }
@@ -861,6 +862,9 @@ export class ProviderProfileComponent implements OnInit, OnDestroy {
     const cat = this.provider()?.category ?? '';
     return cat.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
   });
+
+  // Look up a provider-chosen highlight's label + icon for badge rendering.
+  highlightMeta(value: string) { return PROVIDER_HIGHLIGHTS.find(h => h.value === value); }
 
   reviews  = signal<Review[]>([]);
   lightbox = signal<string | null>(null);
