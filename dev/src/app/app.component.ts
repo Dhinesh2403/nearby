@@ -5,7 +5,6 @@ import { AuthService }   from './core/auth/auth.service';
 import { ToastService }  from './core/services/toast.service';
 import { NotificationService } from './core/services/notification.service';
 import { ChatService }   from './core/services/chat.service';
-import { GeolocationService } from './core/services/geolocation.service';
 import { SettingsService } from './core/services/settings.service';
 
 @Component({
@@ -260,7 +259,6 @@ export class AppComponent {
     public notif:        NotificationService,
     public chat:         ChatService,
     private router:      Router,
-    public geolocation:  GeolocationService,
     private settings:    SettingsService,
   ) {
     this.settings.load();

@@ -814,6 +814,7 @@ export class ProviderProfileComponent implements OnInit, OnDestroy {
   contactRevealed  = signal(false);
   showContactModal = signal(false);
   private pendingChannel: 'call' | 'whatsapp' | null = null;
+  private pendingEnquiry = false;
 
   // ── 11D extras ───────────────────────────────────────────────
   // Owner sees Edit / Add-photo affordances.
@@ -872,7 +873,8 @@ export class ProviderProfileComponent implements OnInit, OnDestroy {
   ) {}
 
   messageProvider() {
-    if (!this.auth.isLoggedIn()) { this.router.navigate(['/auth/login']); return; }
+    // Guests verify (login) via the popup, then the enquiry chat opens.
+    if (!this.auth.isLoggedIn()) { this.pendingEnquiry = true; this.showContactModal.set(true); return; }
     const id = this.provider()?._id;
     if (!id) return;
     this.chat.open({ providerId: id }).subscribe({
@@ -910,6 +912,7 @@ export class ProviderProfileComponent implements OnInit, OnDestroy {
   // OTP verified inside the modal → close it and continue the action.
   onContactVerified() {
     this.showContactModal.set(false);
+    if (this.pendingEnquiry) { this.pendingEnquiry = false; this.messageProvider(); return; }
     if (this.pendingChannel) this.revealAndAct(this.pendingChannel);
   }
 

@@ -273,7 +273,8 @@ const LeadSchema = new mongoose.Schema({
   name:     { type: String, required: true },
   mobile:   { type: String, required: true },
   service:  { type: String, default: '' },
-  location: { type: String, default: '' },
+  category: { type: String, default: '' },   // provider category enum (for matching) — '' = uncategorised
+  location: { type: String, default: '', index: true },   // district name (matched against provider's user district)
   status:   { type: String, enum: ['new', 'contacted', 'closed'], default: 'new' },
 }, { timestamps: true });
 

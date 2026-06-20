@@ -1,0 +1,16 @@
+services:
+  # Angular SPA static site
+  - type: web
+    runtime: static
+    name: nearby-client-staging
+    rootDir: dev
+    buildCommand: npm ci && npm run build:staging
+    staticPublishPath: dist/nearby-frontend/browser
+    # Send every path to index.html so Angular's client-side router
+    # (which redirects unknown paths to the home page) can handle it.
+    # Without this, deep links / refreshes on routes like /browse return
+    # Render's plain-text "Not Found" because no such file exists on disk.
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html

@@ -18,6 +18,7 @@ interface Stats {
 interface Teaser { count: number; unlocked: boolean; adsWatched: number; adsRequired: number; }
 interface MyReview { _id: string; rating: number; review: string; providerReply: string; createdAt: string; customerId: any; }
 interface Visitor { name: string; phone: string; visitedAt: string; }
+interface Lead { _id: string; name: string; mobile: string; service: string; location: string; createdAt: string; }
 
 @Component({
   selector: 'app-provider-dashboard',
@@ -157,8 +158,32 @@ interface Visitor { name: string; phone: string; visitedAt: string; }
           </div>
         </div>
 
-        <!-- Right column: quick links -->
+        <!-- Right column: leads + quick links -->
         <div class="col-lg-5">
+
+          <!-- ── RECENT LEADS (11.17) ───────────────────────────── -->
+          <div class="ds-card mb-4">
+            <div class="ds-hdr"><h6 class="ds-title"><i class="bi bi-megaphone-fill me-2"></i>Recent Leads</h6>
+              <span class="nb-badge nb-badge-muted">{{ leads().length }}</span></div>
+            @if (leads().length === 0) {
+              <p class="text-muted-nb text-center py-3" style="font-size:.875rem">
+                No enquiries yet. Leads from customers in your category &amp; area appear here.</p>
+            }
+            @for (l of leads(); track l._id) {
+              <div class="lead-row">
+                <div class="flex-grow-1">
+                  <p class="lead-name">{{ l.name }}
+                    <span class="lead-time">{{ l.createdAt | date:'dd MMM, h:mm a' }}</span></p>
+                  <p class="lead-meta">
+                    @if (l.service) { <span><i class="bi bi-tag me-1"></i>{{ l.service }}</span> }
+                    @if (l.location) { <span class="ms-2"><i class="bi bi-geo-alt me-1"></i>{{ l.location }}</span> }
+                  </p>
+                </div>
+                <a class="lead-call" [href]="'tel:' + l.mobile"><i class="bi bi-telephone-fill me-1"></i>{{ l.mobile }}</a>
+              </div>
+            }
+          </div>
+
           <div class="ds-card">
             <div class="ds-hdr"><h6 class="ds-title">Quick Links</h6></div>
             <div class="ql-list">
@@ -220,6 +245,14 @@ interface Visitor { name: string; phone: string; visitedAt: string; }
     .rev-editlink { margin-left:8px; }
     .rev-replybtn { margin-top:6px; }
     .reply-box { margin-top:8px; }
+    /* Leads */
+    .lead-row { display:flex; align-items:center; gap:10px; padding:10px 0; border-bottom:1px solid var(--nb-border); }
+    .lead-row:last-child { border-bottom:none; }
+    .lead-name { font-weight:700; font-size:.875rem; margin:0; font-family:var(--font-display); }
+    .lead-time { color:var(--nb-text-muted); font-size:.7rem; font-weight:400; margin-left:6px; }
+    .lead-meta { font-size:.75rem; color:var(--nb-text-muted); margin:2px 0 0; }
+    .lead-call { display:inline-flex; align-items:center; white-space:nowrap; font-size:.78rem; font-weight:600; color:var(--nb-success); text-decoration:none; background:var(--nb-surface-2); padding:6px 10px; border-radius:var(--radius-sm); }
+    .lead-call:hover { background:#ECFDF5; }
     .ql-list { display:flex; flex-direction:column; gap:6px; }
     .ql-item { display:flex; align-items:center; gap:10px; padding:10px 12px; background:var(--nb-surface-2); border-radius:var(--radius-md); color:var(--nb-text); text-decoration:none; font-size:.875rem; transition:background .15s; }
     .ql-item i { color:var(--nb-primary); }
@@ -230,6 +263,7 @@ export class ProviderDashboardComponent implements OnInit {
   stats   = signal<Stats | null>(null);
   teaser  = signal<Teaser | null>(null);
   visitors = signal<Visitor[]>([]);
+  leads    = signal<Lead[]>([]);
   myReviews = signal<MyReview[]>([]);
   watchingAd = signal(false);
   replyingTo = signal<string | null>(null);
@@ -253,6 +287,13 @@ export class ProviderDashboardComponent implements OnInit {
     this.loadStats();
     this.loadTeaser();
     this.loadProfileAndReviews();
+    this.loadLeads();
+  }
+
+  loadLeads() {
+    this.api.get<ApiResponse<Lead[]>>('/leads').subscribe({
+      next: res => this.leads.set(res.data ?? []),
+    });
   }
 
   loadStats() {

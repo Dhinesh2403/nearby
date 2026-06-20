@@ -286,6 +286,7 @@ export class BrowseComponent implements OnInit {
   showContactModal = signal(false);
   private pending: { provider: Provider; channel: 'call' | 'whatsapp' } | null = null;
   private pendingEnquiry: Provider | null = null;
+  private pendingLead = false;
 
   // lead form
   lead = { name: '', mobile: '', service: '' };
@@ -405,6 +406,7 @@ export class BrowseComponent implements OnInit {
   onContactVerified() {
     this.showContactModal.set(false);
     if (this.pendingEnquiry) { const p = this.pendingEnquiry; this.pendingEnquiry = null; this.openChat(p); }
+    else if (this.pendingLead) { this.pendingLead = false; this.submitLead(); }
     else { this.revealAndAct(); }
   }
 
@@ -443,10 +445,16 @@ export class BrowseComponent implements OnInit {
     if (!this.lead.name.trim() || !/^\d{10}$/.test(this.lead.mobile.trim())) {
       this.toast.error('Enter your name and a valid 10-digit mobile.'); return;
     }
+    // Guests must verify (login) before an enquiry is sent; resume after.
+    if (!this.auth.isLoggedIn()) { this.pendingLead = true; this.showContactModal.set(true); return; }
+    this.submitLead();
+  }
+
+  private submitLead() {
     this.sendingLead.set(true);
     this.api.post<ApiResponse<any>>('/leads', {
       name: this.lead.name.trim(), mobile: this.lead.mobile.trim(),
-      service: this.lead.service.trim() || this.q, location: this.district(),
+      service: this.lead.service.trim() || this.q, category: this.cat(), location: this.district(),
     }).subscribe({
       next: () => { this.sendingLead.set(false); this.toast.success('Enquiry sent! Providers will reach out soon.'); this.lead = { name:'', mobile:'', service:'' }; },
       error: () => { this.sendingLead.set(false); this.toast.error('Could not send enquiry.'); },
