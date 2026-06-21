@@ -107,9 +107,7 @@ import { ContactLoginModalComponent } from '../../shared/components/contact-logi
             <button class="chip" [class.on]="verifiedOnly()" (click)="toggleVerified()">
               <i class="bi bi-patch-check-fill"></i>Verified
             </button>
-            <button class="chip" [class.on]="onlineOnly()" (click)="toggleOnline()">
-              <i class="bi bi-lightning-charge-fill"></i>Quick Response
-            </button>
+
             <button class="chip" [class.on]="minRating()===4" (click)="toggleRating(4)">
               <i class="bi bi-star"></i>4★ &amp; above
             </button>
@@ -308,7 +306,6 @@ export class BrowseComponent implements OnInit {
   cat        = signal('all');
   minRating  = signal(0);
   verifiedOnly = signal(false);
-  onlineOnly = signal(false);   // was plain boolean — now signal for consistent reactivity
   sortOpen   = signal(false);
   sort       = 'rating';
   q          = '';
@@ -419,7 +416,6 @@ export class BrowseComponent implements OnInit {
     if (this.cat() !== 'all')     params['category'] = this.cat();
     if (this.subCat() !== 'all')  params['subCategory'] = this.subCat();
     if (this.minRating() > 0)     params['rating']   = this.minRating();
-    if (this.onlineOnly())        params['isOnline']  = true;
     if (this.verifiedOnly())      params['verified']  = true;
     if (this.q.trim())            params['search']    = this.q.trim();
     if (this.district())          params['district']  = this.district();
@@ -447,7 +443,6 @@ export class BrowseComponent implements OnInit {
 
   toggleRating(r: number) { this.minRating.set(this.minRating() === r ? 0 : r); this.page.set(1); this.load(); }
   toggleVerified()        { this.verifiedOnly.set(!this.verifiedOnly()); this.page.set(1); this.load(); }
-  toggleOnline()          { this.onlineOnly.set(!this.onlineOnly()); this.page.set(1); this.load(); }
   setSort(v: string)      { this.sort = v; this.sortOpen.set(false); this.page.set(1); this.load(); }
   setCat(id: string)      { this.cat.set(id); this.subCat.set('all'); this.page.set(1); this.load(); }
   setSubCat(s: string)    { this.subCat.set(s); this.page.set(1); this.load(); }
@@ -457,7 +452,7 @@ export class BrowseComponent implements OnInit {
 
   clearAll() {
     this.q = ''; this.cat.set('all'); this.subCat.set('all'); this.minRating.set(0);
-    this.onlineOnly.set(false); this.verifiedOnly.set(false);
+    this.verifiedOnly.set(false);
     this.sort = 'rating'; this.sortOpen.set(false);
     this.page.set(1); this.load();
   }

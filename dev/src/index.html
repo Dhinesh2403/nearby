@@ -5,18 +5,105 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <base href="/">
-  <title>NearBy Pro — Find Local Services & Small Businesses Near You</title>
+
+  <!-- Primary SEO -->
+  <title>NearbyPro — Find Local Services & Small Businesses Near You</title>
   <meta name="description"
-    content="Discover trusted local service providers near you. Find home bakers, tutors, salons, repair shops & more. Contact directly via call or WhatsApp. Free listing!">
+    content="NearbyPro: Discover trusted local service providers near you. Find plumbers, tutors, home bakers, salons, repair shops & more. Contact directly via call or WhatsApp. Free listing for providers!">
   <meta name="keywords"
-    content="local services near me, home baker near me, tutor near me, salon near me, small business directory India">
-  <meta property="og:title" content="NearBy Pro — Find Local Services Near You">
+    content="nearbypro, nearby pro, local services near me, home baker near me, tutor near me, salon near me, plumber near me, electrician near me, small business directory India, service providers Chennai, service providers Coimbatore">
+  <meta name="robots" content="index, follow">
+  <link rel="canonical" href="https://nearbypro.online/">
+
+  <!-- Open Graph -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="NearbyPro">
+  <meta property="og:title" content="NearbyPro — Find Local Services & Small Businesses Near You">
   <meta property="og:description"
-    content="Connect with verified local providers in your area. Free for customers. Free listing for providers.">
-  <meta property="og:url" content="https://nearbypro.online">
+    content="Connect with verified local providers in your area. Plumbers, tutors, salons & more. Free for customers. Free listing for providers.">
+  <meta property="og:url" content="https://nearbypro.online/">
+  <meta property="og:image" content="https://nearbypro.online/assets/brand/og-image.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:locale" content="en_IN">
+
+  <!-- Twitter Card -->
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="NearbyPro — Find Local Services Near You">
+  <meta name="twitter:description"
+    content="Discover trusted local service providers near you. Free for customers. Free listing for providers.">
+  <meta name="twitter:image" content="https://nearbypro.online/assets/brand/og-image.png">
+
+  <!-- Icons -->
   <link rel="icon" type="image/svg+xml" href="favicon.svg">
   <link rel="apple-touch-icon" href="favicon.svg">
-  <meta property="og:image" content="https://nearbypro.online/assets/brand/logo.svg">
+  <meta name="theme-color" content="#1A3C5E">
+
+  <!-- JSON-LD: Organization + WebSite (brand signal for Google) -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "Organization",
+        "@id": "https://nearbypro.online/#organization",
+        "name": "NearbyPro",
+        "alternateName": "NearBy Pro",
+        "url": "https://nearbypro.online",
+        "logo": {
+          "@type": "ImageObject",
+          "url": "https://nearbypro.online/assets/brand/logo.svg",
+          "width": 200,
+          "height": 60
+        },
+        "description": "NearbyPro connects customers with trusted local service providers across India. Find plumbers, tutors, salons, home bakers, electricians and more.",
+        "foundingLocation": {
+          "@type": "Place",
+          "name": "Chennai, Tamil Nadu, India"
+        },
+        "areaServed": {
+          "@type": "Country",
+          "name": "India"
+        },
+        "contactPoint": {
+          "@type": "ContactPoint",
+          "contactType": "customer support",
+          "availableLanguage": ["English", "Tamil"]
+        },
+        "sameAs": []
+      },
+      {
+        "@type": "WebSite",
+        "@id": "https://nearbypro.online/#website",
+        "url": "https://nearbypro.online",
+        "name": "NearbyPro",
+        "description": "Find trusted local service providers near you",
+        "publisher": { "@id": "https://nearbypro.online/#organization" },
+        "potentialAction": {
+          "@type": "SearchAction",
+          "target": {
+            "@type": "EntryPoint",
+            "urlTemplate": "https://nearbypro.online/browse?q={search_term_string}"
+          },
+          "query-input": "required name=search_term_string"
+        }
+      },
+      {
+        "@type": "WebPage",
+        "@id": "https://nearbypro.online/#webpage",
+        "url": "https://nearbypro.online/",
+        "name": "NearbyPro — Find Local Services & Small Businesses Near You",
+        "isPartOf": { "@id": "https://nearbypro.online/#website" },
+        "about": { "@id": "https://nearbypro.online/#organization" },
+        "description": "Discover trusted local service providers near you. Find plumbers, tutors, salons, home bakers and more. Contact directly via call or WhatsApp.",
+        "breadcrumb": {
+          "@type": "BreadcrumbList",
+          "itemListElement": [{ "@type": "ListItem", "position": 1, "name": "Home", "item": "https://nearbypro.online/" }]
+        }
+      }
+    ]
+  }
+  </script>
   <!-- Google AdSense — loads once, ad units placed per component -->
   <script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-6613739357752442"
      crossorigin="anonymous"></script>
@@ -73,6 +160,18 @@
   </style>
 
   <app-root></app-root>
+
+  <!-- Fallback content for crawlers that don't execute JS -->
+  <noscript>
+    <h1>NearbyPro — Find Local Services &amp; Small Businesses Near You</h1>
+    <p>Discover trusted local service providers near you. Find plumbers, tutors, home bakers, salons, repair shops &amp; more on NearbyPro. Contact directly via call or WhatsApp. Free listing for providers!</p>
+    <ul>
+      <li><a href="/browse">Browse Local Services</a></li>
+      <li><a href="/provider-signup">List Your Business — Free</a></li>
+      <li><a href="/terms">Terms of Service</a></li>
+      <li><a href="/privacy">Privacy Policy</a></li>
+    </ul>
+  </noscript>
 </body>
 
 </html>

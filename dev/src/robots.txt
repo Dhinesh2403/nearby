@@ -1,8 +1,10 @@
 User-agent: *
-Allow: /$
+Allow: /
 Allow: /browse
-Allow: /provider-signup
 Allow: /provider/
+Allow: /provider-signup
+Allow: /terms
+Allow: /privacy
 
 # Private / authenticated areas — keep out of the index
 Disallow: /auth
