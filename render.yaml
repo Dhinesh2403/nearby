@@ -1,5 +1,5 @@
 services:
-  # Angular SPA static site
+  # ── Angular SPA — STAGING ────────────────────────────────────
   - type: web
     runtime: static
     name: nearby-client-staging
@@ -10,6 +10,20 @@ services:
     # (which redirects unknown paths to the home page) can handle it.
     # Without this, deep links / refreshes on routes like /browse return
     # Render's plain-text "Not Found" because no such file exists on disk.
+    # NOTE: Render does NOT read the Netlify-style `_redirects` file — this
+    # `routes` block is the only thing that produces the SPA fallback.
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+
+  # ── Angular SPA — PRODUCTION ─────────────────────────────────
+  - type: web
+    runtime: static
+    name: nearby-client
+    rootDir: dev
+    buildCommand: npm ci && npm run build:production
+    staticPublishPath: dist/nearby-frontend/browser
     routes:
       - type: rewrite
         source: /*
