@@ -4,6 +4,7 @@ import { CommonModule }  from '@angular/common';
 import { FormsModule }   from '@angular/forms';
 import { RouterLink, Router, ActivatedRoute } from '@angular/router';
 import { ApiService, ApiResponse } from '../../core/services/api.service';
+import { CategoryService } from '../../core/services/category.service';
 import { ToastService }  from '../../core/services/toast.service';
 import { ChatService }   from '../../core/services/chat.service';
 import { DialogService } from '../../core/services/dialog.service';
@@ -384,15 +385,7 @@ export class AdminDashboardComponent implements OnInit {
   savingSettings = signal(false);
   lightbox       = signal<string | null>(null);
 
-  // Full canonical category list (id + label), loaded from /api/categories.
-  // Falls back to a minimal set if the request fails.
-  allCategories = signal<{ id: string; label: string }[]>([
-    { id: 'home_services', label: 'Home Services' },
-    { id: 'education',     label: 'Education' },
-    { id: 'food',          label: 'Food' },
-    { id: 'wellness',      label: 'Wellness' },
-    { id: 'events',        label: 'Events' },
-  ]);
+  allCategories = this.catSvc.cats;
 
   tabs = [
     { id:'providers',  label:'Providers',  icon:'bi-briefcase',            tid:'providers-tab' },
@@ -410,7 +403,8 @@ export class AdminDashboardComponent implements OnInit {
     private router: Router,
     private dialog: DialogService,
     private route: ActivatedRoute,
-  ) {}
+    private catSvc: CategoryService,
+  ) { catSvc.load(); }
 
   // Open a support chat with any user (provider/customer) from the admin panel.
   chatUser(userId: string, draft = '') {
@@ -450,15 +444,6 @@ export class AdminDashboardComponent implements OnInit {
       },
       error: () => this.kpis.set([]),
     });
-    // Load the full category list for the Featured Categories chips.
-    this.api.get<any>('/categories').subscribe({
-      next: res => {
-        const list = (res.data ?? []).map((c: any) => ({ id: c.id, label: c.label }));
-        if (list.length) this.allCategories.set(list);
-      },
-      error: () => { /* keep fallback list */ },
-    });
-
     // Honour ?tab=… deep links (e.g. the "New complaint filed" notification → complaints).
     // Subscribing handles both first load and clicks while already on /admin.
     this.route.queryParamMap.subscribe(params => {

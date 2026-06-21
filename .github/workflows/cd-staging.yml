@@ -45,7 +45,6 @@ jobs:
 
           echo "Triggering deploy for service $RENDER_SERVICE_ID"
 
-          # Write response body to a temp file; capture HTTP status code separately.
           BODY_FILE=$(mktemp)
           http_status=$(curl --silent --show-error \
             --request POST \
@@ -65,14 +64,31 @@ jobs:
             exit 1
           fi
 
-          # The id sits at .id on the create response, but tolerate a wrapped { "deploy": {...} } too.
           deploy_id=$(printf '%s' "$response" | jq -r '.id // .deploy.id // empty')
+
+          # Render sometimes returns 202 with empty body when a deploy is already
+          # in progress or the service type does not echo the deploy object back.
+          # Fall back to the most recent deploy from the list endpoint.
           if [ -z "$deploy_id" ]; then
-            echo "::error::Failed to trigger deploy — no deploy id in response (HTTP $http_status):"
-            echo "$response"
+            echo "No deploy id in trigger response — fetching latest deploy from list..."
+            sleep 5
+            LIST_FILE=$(mktemp)
+            list_status=$(curl --silent --show-error \
+              --header "Authorization: Bearer $RENDER_API_KEY" \
+              --output "$LIST_FILE" \
+              --write-out "%{http_code}" \
+              "https://api.render.com/v1/services/$RENDER_SERVICE_ID/deploys?limit=1")
+            list_body=$(cat "$LIST_FILE"); rm -f "$LIST_FILE"
+            echo "List HTTP status: $list_status"
+            echo "List body: $list_body"
+            deploy_id=$(printf '%s' "$list_body" | jq -r '.[0].deploy.id // .[0].id // empty')
+          fi
+
+          if [ -z "$deploy_id" ]; then
+            echo "::error::Could not determine a deploy id — check that RENDER_SERVICE_ID is a backend web service (not a static site)"
             exit 1
           fi
-          echo "Created deploy $deploy_id"
+          echo "Tracking deploy $deploy_id"
 
           for _ in $(seq 1 60); do
             STATUS_FILE=$(mktemp)
