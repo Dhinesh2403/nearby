@@ -158,7 +158,7 @@ import { SettingsService } from '../../core/services/settings.service';
     .announce-bar { background:linear-gradient(90deg,var(--nb-primary),var(--nb-primary-light)); color:#fff; text-align:center; padding:10px 16px; font-size:.875rem; font-weight:600; font-family:var(--font-display); }
     .scam-bar { background:#FEE2E2; color:#991b1b; text-align:center; padding:10px 16px; font-size:.85rem; border-bottom:1px solid #FECACA; }
     .hero-section { background:linear-gradient(135deg,#0F2744 0%,#1A3C5E 60%,#1e4d7a 100%); padding:80px 0 60px; position:relative; overflow:visible; }
-    @media (max-width:767px) { .hero-section { padding:48px 0 36px; } .hero-sub { font-size:.9rem; } .hero-stats { flex-wrap:wrap; gap:12px; } }
+    @media (max-width:767px) { .hero-section { padding:48px 0 36px; } .hero-sub { font-size:.9rem; } .hero-stats { flex-wrap:wrap; gap:12px; margin-top:1rem;} }
     .hero-pattern { position:absolute; inset:0; background-image:radial-gradient(circle at 20% 80%,rgba(245,158,11,.08) 0%,transparent 50%),radial-gradient(circle at 80% 20%,rgba(37,99,168,.15) 0%,transparent 50%); }
     .hero-tag { display:inline-flex; align-items:center; background:rgba(245,158,11,.15); color:var(--nb-accent); border:1px solid rgba(245,158,11,.3); border-radius:20px; padding:4px 14px; font-size:.78rem; font-family:var(--font-display); font-weight:600; letter-spacing:.05em; text-transform:uppercase; margin-bottom:1rem; }
     .hero-title { font-size:clamp(2.2rem,5vw,3.5rem); font-weight:800; color:#fff; line-height:1.1; margin-bottom:1rem; }
