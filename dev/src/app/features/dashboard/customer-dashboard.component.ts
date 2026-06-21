@@ -4,6 +4,7 @@ import { CommonModule }  from '@angular/common';
 import { RouterLink, Router } from '@angular/router';
 import { AuthService }   from '../../core/auth/auth.service';
 import { ApiService, ApiResponse } from '../../core/services/api.service';
+import { CategoryService } from '../../core/services/category.service';
 import { ChatService }   from '../../core/services/chat.service';
 import { ToastService }  from '../../core/services/toast.service';
 
@@ -198,7 +199,8 @@ export class CustomerDashboardComponent implements OnInit {
     private chat: ChatService,
     private toast: ToastService,
     private router: Router,
-  ) {}
+    private catSvc: CategoryService,
+  ) { catSvc.load(); }
 
   firstName() { return this.auth.currentUser()?.name?.split(' ')[0] ?? ''; }
 
@@ -254,8 +256,5 @@ export class CustomerDashboardComponent implements OnInit {
     });
   }
 
-  providerColor(cat: string) {
-    const m: Record<string,string> = { home_services:'#2563A8', education:'#059669', food:'#D97706', wellness:'#7C3AED', events:'#DC2626' };
-    return m[cat] ?? '#1A3C5E';
-  }
+  providerColor(cat: string) { return this.catSvc.color(cat); }
 }

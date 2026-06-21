@@ -4,6 +4,7 @@ import { CommonModule }  from '@angular/common';
 import { FormsModule }   from '@angular/forms';
 import { RouterLink, ActivatedRoute, Router } from '@angular/router';
 import { ApiService, Provider, PaginatedResponse, ApiResponse } from '../../core/services/api.service';
+import { CategoryService } from '../../core/services/category.service';
 import { AuthService } from '../../core/auth/auth.service';
 import { ToastService } from '../../core/services/toast.service';
 import { ChatService } from '../../core/services/chat.service';
@@ -106,9 +107,6 @@ import { ContactLoginModalComponent } from '../../shared/components/contact-logi
             </button>
             <button class="chip" [class.on]="verifiedOnly()" (click)="toggleVerified()">
               <i class="bi bi-patch-check-fill"></i>Verified
-            </button>
-            <button class="chip" [class.on]="onlineOnly()" (click)="toggleOnline()">
-              <i class="bi bi-lightning-charge-fill"></i>Quick Response
             </button>
             <button class="chip" [class.on]="minRating()===4" (click)="toggleRating(4)">
               <i class="bi bi-star"></i>4★ &amp; above
@@ -308,7 +306,6 @@ export class BrowseComponent implements OnInit {
   cat        = signal('all');
   minRating  = signal(0);
   verifiedOnly = signal(false);
-  onlineOnly = signal(false);   // was plain boolean — now signal for consistent reactivity
   sortOpen   = signal(false);
   sort       = 'rating';
   q          = '';
@@ -340,37 +337,7 @@ export class BrowseComponent implements OnInit {
   totalPages  = computed(() => Math.ceil(this.total() / 12));
   pageNumbers = computed(() => Array.from({ length: this.totalPages() }, (_, i) => i + 1).slice(0, 7));
 
-  // Loaded from /api/categories so newly approved categories appear in the
-  // filter automatically. The hardcoded list below is the offline fallback.
-  cats = signal<{ id: string; label: string; color?: string; subCategories?: string[] }[]>([
-    { id:'all',             label:'All' },
-    { id:'home_services',   label:'Home Services' },
-    { id:'education',       label:'Education' },
-    { id:'food',            label:'Food & Catering' },
-    { id:'bakery',          label:'Bakery' },
-    { id:'beauty_salon',    label:'Beauty & Salon' },
-    { id:'fitness',         label:'Fitness' },
-    { id:'wellness',        label:'Spa & Wellness' },
-    { id:'health_medical',  label:'Health & Medical' },
-    { id:'events',          label:'Events' },
-    { id:'photography',     label:'Photography' },
-    { id:'repair_services', label:'Repair Services' },
-    { id:'automotive',      label:'Automotive' },
-    { id:'clothing_fashion',label:'Clothing & Fashion' },
-    { id:'pet_care',        label:'Pet Care' },
-    { id:'cleaning',        label:'Cleaning' },
-    { id:'transport',       label:'Transport' },
-    { id:'interior_design', label:'Interior Design' },
-    { id:'legal_finance',   label:'Legal & Finance' },
-    { id:'it_tech',         label:'IT & Tech' },
-    { id:'childcare',       label:'Childcare' },
-    { id:'wedding',         label:'Wedding Services' },
-    { id:'music_arts',      label:'Music & Arts' },
-    { id:'sports',          label:'Sports & Coaching' },
-    { id:'printing',        label:'Printing' },
-    { id:'security',        label:'Security' },
-    { id:'agriculture',     label:'Agriculture' },
-  ]);
+  cats = computed(() => [{ id: 'all', label: 'All', color: undefined, subCategories: [] as string[] }, ...this.catSvc.cats()]);
 
   // Filter dropdown state.
   subCat     = signal('all');
@@ -383,7 +350,8 @@ export class BrowseComponent implements OnInit {
   constructor(
     private api: ApiService, private route: ActivatedRoute, private router: Router,
     private auth: AuthService, private toast: ToastService, private chat: ChatService,
-  ) {}
+    readonly catSvc: CategoryService,
+  ) { catSvc.load(); }
 
   // The "Get the best deals" lead form is for customers/guests reaching out to
   // providers — hide it for provider and admin accounts.
@@ -393,17 +361,6 @@ export class BrowseComponent implements OnInit {
   }
 
   ngOnInit() {
-    // Live category list (with sub-categories + colours) for the filter.
-    this.api.get<ApiResponse<any[]>>('/categories').subscribe({
-      next: res => {
-        const list = (res.data ?? []).map(c => ({
-          id: c.id, label: c.label, color: c.color, subCategories: c.subCategories ?? [],
-        }));
-        if (list.length) this.cats.set([{ id: 'all', label: 'All' }, ...list]);
-      },
-      error: () => { /* keep fallback list */ },
-    });
-
     this.route.queryParams.subscribe(p => {
       if (p['category'])    this.cat.set(p['category']);
       if (p['subCategory']) this.subCat.set(p['subCategory']);
@@ -419,7 +376,6 @@ export class BrowseComponent implements OnInit {
     if (this.cat() !== 'all')     params['category'] = this.cat();
     if (this.subCat() !== 'all')  params['subCategory'] = this.subCat();
     if (this.minRating() > 0)     params['rating']   = this.minRating();
-    if (this.onlineOnly())        params['isOnline']  = true;
     if (this.verifiedOnly())      params['verified']  = true;
     if (this.q.trim())            params['search']    = this.q.trim();
     if (this.district())          params['district']  = this.district();
@@ -447,7 +403,6 @@ export class BrowseComponent implements OnInit {
 
   toggleRating(r: number) { this.minRating.set(this.minRating() === r ? 0 : r); this.page.set(1); this.load(); }
   toggleVerified()        { this.verifiedOnly.set(!this.verifiedOnly()); this.page.set(1); this.load(); }
-  toggleOnline()          { this.onlineOnly.set(!this.onlineOnly()); this.page.set(1); this.load(); }
   setSort(v: string)      { this.sort = v; this.sortOpen.set(false); this.page.set(1); this.load(); }
   setCat(id: string)      { this.cat.set(id); this.subCat.set('all'); this.page.set(1); this.load(); }
   setSubCat(s: string)    { this.subCat.set(s); this.page.set(1); this.load(); }
@@ -457,7 +412,7 @@ export class BrowseComponent implements OnInit {
 
   clearAll() {
     this.q = ''; this.cat.set('all'); this.subCat.set('all'); this.minRating.set(0);
-    this.onlineOnly.set(false); this.verifiedOnly.set(false);
+    this.verifiedOnly.set(false);
     this.sort = 'rating'; this.sortOpen.set(false);
     this.page.set(1); this.load();
   }
@@ -465,23 +420,8 @@ export class BrowseComponent implements OnInit {
   // Look up a provider-chosen highlight's label + icon for card rendering.
   highlightMeta(value: string) { return PROVIDER_HIGHLIGHTS.find(h => h.value === value); }
 
-  catLabel(id: string) { return this.cats().find(c => c.id === id)?.label ?? id; }
-  catColor(id: string) {
-    const fromApi = this.cats().find(c => c.id === id)?.color;
-    if (fromApi) return fromApi;
-    const m: Record<string,string> = {
-      home_services:'#2563A8', education:'#059669', food:'#D97706',
-      bakery:'#B45309', beauty_salon:'#DB2777', fitness:'#0891B2',
-      wellness:'#7C3AED', health_medical:'#0F766E', events:'#DC2626',
-      photography:'#7C3AED', repair_services:'#6B7280', automotive:'#1D4ED8',
-      clothing_fashion:'#BE185D', pet_care:'#92400E', cleaning:'#0369A1',
-      transport:'#374151', interior_design:'#B45309', legal_finance:'#1E40AF',
-      it_tech:'#1D4ED8', childcare:'#D97706', wedding:'#9333EA',
-      music_arts:'#0F766E', sports:'#16A34A', printing:'#6B7280',
-      security:'#374151', agriculture:'#15803D',
-    };
-    return m[id] ?? '#1A3C5E';
-  }
+  catLabel(id: string) { return id === 'all' ? 'All' : this.catSvc.label(id); }
+  catColor(id: string) { return this.catSvc.color(id); }
 
   // ── Per-card contact reveal (gated by OTP) ───────────────────
   requestContact(p: Provider, channel: 'call' | 'whatsapp') {

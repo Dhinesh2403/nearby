@@ -4,6 +4,7 @@ import { CommonModule }   from '@angular/common';
 import { FormsModule }    from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { ApiService, Provider, ApiResponse } from '../../core/services/api.service';
+import { CategoryService } from '../../core/services/category.service';
 import { ChatService }    from '../../core/services/chat.service';
 import { AuthService }    from '../../core/auth/auth.service';
 import { ToastService }   from '../../core/services/toast.service';
@@ -885,7 +886,8 @@ export class ProviderProfileComponent implements OnInit, OnDestroy {
     private chat:   ChatService,
     private auth:   AuthService,
     private toast:  ToastService,
-  ) {}
+    private catSvc: CategoryService,
+  ) { catSvc.load(); }
 
   messageProvider() {
     // Guests verify (login) via the popup, then the enquiry chat opens.
@@ -1061,16 +1063,7 @@ export class ProviderProfileComponent implements OnInit, OnDestroy {
     });
   }
 
-  hcolor() {
-    const m: Record<string,string> = {
-      home_services: '#1e4d8c',
-      education:     '#065f46',
-      food:          '#92400e',
-      wellness:      '#5b21b6',
-      events:        '#991b1b',
-    };
-    return m[this.provider()?.category ?? ''] ?? '#1A3C5E';
-  }
+  hcolor() { return this.catSvc.color(this.provider()?.category ?? ''); }
 
   providerLocation() {
     const loc   = this.provider()?.userId?.location;

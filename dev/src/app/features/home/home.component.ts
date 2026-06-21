@@ -1,9 +1,10 @@
 // src/app/features/home/home.component.ts
-import { Component, OnInit, signal } from '@angular/core';
+import { Component, OnInit, signal, computed } from '@angular/core';
 import { Router, RouterLink }  from '@angular/router';
 import { CommonModule }        from '@angular/common';
 import { FormsModule }         from '@angular/forms';
 import { ApiService, Provider, PaginatedResponse } from '../../core/services/api.service';
+import { CategoryService } from '../../core/services/category.service';
 import { JdSearchBarComponent } from '../../shared/components/jd-search-bar.component';
 import { SettingsService } from '../../core/services/settings.service';
 
@@ -214,15 +215,9 @@ export class HomeComponent implements OnInit {
   topProviders    = signal<Provider[]>([]);
   loadingProviders = signal(true);
 
-  // Seeded with sensible defaults, then replaced by live data from
-  // GET /api/categories (icons/colours/counts/featured flags — 7.11).
-  cats = signal<any[]>([
-    { id:'home_services', label:'Home Services', icon:'bi-tools',       count:'', color:'#2563A8' },
-    { id:'education',     label:'Education',     icon:'bi-mortarboard', count:'', color:'#059669' },
-    { id:'food',          label:'Food',          icon:'bi-basket2',     count:'', color:'#D97706' },
-    { id:'wellness',      label:'Wellness',      icon:'bi-heart-pulse', count:'', color:'#7C3AED' },
-    { id:'events',        label:'Events',        icon:'bi-camera',      count:'', color:'#DC2626' },
-    { id:'all',           label:'View All',      icon:'bi-grid',        count:'', color:'#1A3C5E' },
+  cats = computed(() => [
+    ...this.catSvc.cats().map(c => ({ ...c, count: c.count ? `${c.count} listed` : 'New' })),
+    { id:'all', label:'View All', icon:'bi-grid', count:'', color:'#1A3C5E', featured: false },
   ]);
 
   steps = [
@@ -233,7 +228,7 @@ export class HomeComponent implements OnInit {
 
   // Auto-detected area label (e.g. "Vadavalli, Coimbatore") for the location box (11.2)
 
-  constructor(private api: ApiService, private router: Router, public settings: SettingsService) {}
+  constructor(private api: ApiService, private router: Router, public settings: SettingsService, private catSvc: CategoryService) { catSvc.load(); }
 
   ngOnInit() {
     this.api.get<PaginatedResponse<Provider>>('/providers', { limit: '6', sort: 'rating' })
@@ -242,19 +237,6 @@ export class HomeComponent implements OnInit {
         error: ()  => this.loadingProviders.set(false),
       });
 
-    // Live category metadata + counts (7.11). Append the static "View All".
-    this.api.get<{ data: any[] }>('/categories').subscribe({
-      next: res => {
-        const live = (res.data ?? []).map(c => ({
-          id: c.id, label: c.label, icon: c.icon, color: c.color,
-          count: c.count ? `${c.count} listed` : 'New', featured: c.featured,
-        }));
-        if (live.length) {
-          this.cats.set([...live, { id:'all', label:'View All', icon:'bi-grid', count:'', color:'#1A3C5E' }]);
-        }
-      },
-      // keep the seeded defaults on error
-    });
   }
 
   browseCat(id: string)         { this.router.navigate(['/browse'], { queryParams: { category: id } }); }
@@ -266,8 +248,5 @@ export class HomeComponent implements OnInit {
     this.router.navigate(['/browse'], { queryParams: qp });
   }
 
-  catColor(id: string) {
-    const m: Record<string,string> = { home_services:'#2563A8', education:'#059669', food:'#D97706', wellness:'#7C3AED', events:'#DC2626' };
-    return m[id] ?? '#1A3C5E';
-  }
+  catColor(id: string) { return id === 'all' ? '#1A3C5E' : this.catSvc.color(id); }
 }

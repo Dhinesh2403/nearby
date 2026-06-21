@@ -1,9 +1,10 @@
 // src/app/features/provider/provider-edit.component.ts
-import { Component, OnInit, signal } from '@angular/core';
+import { Component, OnInit, computed, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule }  from '@angular/forms';
 import { RouterLink, Router } from '@angular/router';
 import { ApiService, ApiResponse, Provider } from '../../core/services/api.service';
+import { CategoryService } from '../../core/services/category.service';
 import { ToastService } from '../../core/services/toast.service';
 import { UploadService } from '../../core/services/upload.service';
 import { PROVIDER_HIGHLIGHTS, MAX_HIGHLIGHTS } from '../../core/constants';
@@ -251,15 +252,7 @@ export class ProviderEditComponent implements OnInit {
   highlightOptions = PROVIDER_HIGHLIGHTS;
   maxHighlights    = MAX_HIGHLIGHTS;
 
-  // Populated from /api/categories (single source of truth). Falls back to a
-  // minimal set if the request fails so the form is never empty.
-  categories = signal<{ value: string; label: string }[]>([
-    { value: 'home_services', label: 'Home Services' },
-    { value: 'education',     label: 'Education' },
-    { value: 'food',          label: 'Food & Essentials' },
-    { value: 'wellness',      label: 'Wellness' },
-    { value: 'events',        label: 'Events' },
-  ]);
+  categories = computed(() => this.catSvc.cats().map(c => ({ value: c.id, label: c.label })));
 
   // "Request a new category" panel state.
   reqName    = '';
@@ -274,18 +267,9 @@ export class ProviderEditComponent implements OnInit {
     availability: { days: ['Mon','Tue','Wed','Thu','Fri'] as string[], startTime: '09:00', endTime: '18:00' },
   };
 
-  constructor(private api: ApiService, private toast: ToastService, private router: Router, private uploadSvc: UploadService) {}
+  constructor(private api: ApiService, private toast: ToastService, private router: Router, private uploadSvc: UploadService, private catSvc: CategoryService) { catSvc.load(); }
 
   ngOnInit() {
-    // Load the full canonical category list (public endpoint).
-    this.api.get<ApiResponse<any[]>>('/categories').subscribe({
-      next: res => {
-        const list = (res.data ?? []).map(c => ({ value: c.id, label: c.label }));
-        if (list.length) this.categories.set(list);
-      },
-      error: () => { /* keep fallback list */ },
-    });
-
     this.api.get<ApiResponse<Provider>>('/providers/my').subscribe({
       next: res => {
         const p = res.data;

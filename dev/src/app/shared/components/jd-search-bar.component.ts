@@ -4,7 +4,10 @@
 import { Component, OnInit, OnDestroy, signal, computed, input, output } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { Router } from '@angular/router';
 import { DISTRICTS } from '../../core/constants';
+import { CategoryService } from '../../core/services/category.service';
+import { ApiService, Provider, PaginatedResponse } from '../../core/services/api.service';
 
 const PLACEHOLDERS = [
   'Search for Plumbers & Electricians', 'Search for Custom Cakes', 'Search for Yoga Classes',
@@ -42,7 +45,7 @@ const RECENT_LOC_KEY = 'nb_recent_locations';
               }
             }
             <p class="jd-drop-h">Cities</p>
-            @for (d of filteredDistricts(); track d) {
+            @for (d of filteredDistricts; track d) {
               <div class="jd-item" (click)="pickLocation(d)"><i class="bi bi-geo-alt"></i><span>{{ d }}</span></div>
             }
           </div>
@@ -57,7 +60,7 @@ const RECENT_LOC_KEY = 'nb_recent_locations';
         <input type="text" [(ngModel)]="q" class="jd-input"
                [placeholder]="placeholder()" aria-label="Search services"
                (focus)="locOpen.set(false); svcOpen.set(true)" (blur)="closeSoon('svc')"
-               (ngModelChange)="svcOpen.set(true)" (keyup.enter)="go()" />
+               (ngModelChange)="onQueryChange()" (keyup.enter)="go()" />
         @if (voiceSupported) {
           <button class="jd-mic" [class.on]="listening()" (click)="startVoice()" title="Voice search" type="button">
             <i class="bi bi-mic-fill"></i>
@@ -78,11 +81,37 @@ const RECENT_LOC_KEY = 'nb_recent_locations';
                 <div class="jd-item" (click)="pickService(t)"><i class="bi bi-arrow-up-right"></i><span>{{ t }}</span></div>
               }
             } @else {
-              @for (s of filteredServices(); track s.name) {
+              <!-- Category / service suggestions (DB categories first, matched text bolded) -->
+              @for (s of filteredServices; track s.name) {
                 <div class="jd-item jd-sug" (click)="pickService(s.name)">
-                  <i class="bi bi-search"></i>
-                  <span><strong>{{ s.name }}</strong><small>{{ s.category }}</small></span>
+                  <i class="bi" [ngClass]="s.icon || 'bi-search'"></i>
+                  <span><strong [innerHTML]="highlightHtml(s.name)"></strong><small>{{ s.category }}</small></span>
                 </div>
+              }
+
+              <!-- Live provider results (debounced /providers search) -->
+              @if (searchingProviders()) {
+                <div class="jd-item jd-no-result"><i class="bi bi-hourglass-split"></i><span>Searching…</span></div>
+              }
+              @for (p of providerResults(); track p._id) {
+                <div class="jd-item jd-prov" (click)="pickProvider(p)">
+                  <span class="jd-prov-thumb" [style.background]="catSvc.color(p.category)">
+                    @if (p.images && p.images.length) { <img [src]="p.images[0]" [alt]="p.businessName" /> }
+                    @else { {{ p.businessName.charAt(0) }} }
+                  </span>
+                  <span class="jd-prov-body">
+                    <strong [innerHTML]="highlightHtml(p.businessName)"></strong>
+                    <small>
+                      <span class="jd-prov-rate">{{ p.ratingAvg }} <i class="bi bi-star-fill"></i></span>
+                      <span class="jd-prov-cnt">({{ p.ratingCount }})</span>
+                      · {{ p.userId?.location?.area || p.userId?.location?.district || 'Coimbatore' }}
+                    </small>
+                  </span>
+                </div>
+              }
+
+              @if (!filteredServices.length && !providerResults().length && !searchingProviders()) {
+                <div class="jd-item jd-no-result"><i class="bi bi-slash-circle"></i><span>No categories found</span></div>
               }
             }
           </div>
@@ -115,6 +144,19 @@ const RECENT_LOC_KEY = 'nb_recent_locations';
     .jd-item i { color:var(--nb-text-muted); font-size:.85rem; }
 .jd-sug span { display:flex; flex-direction:column; line-height:1.2; }
     .jd-sug small { color:var(--nb-text-muted); font-size:.7rem; text-transform:capitalize; }
+    .jd-no-result { color:var(--nb-text-muted); cursor:default; font-size:.82rem; }
+    .jd-no-result:hover { background:none; }
+    .jd-sug strong b, .jd-prov strong b { color:var(--nb-primary); font-weight:800; }
+    /* provider result rows */
+    .jd-prov { align-items:center; gap:12px; }
+    .jd-prov-thumb { width:38px; min-width:38px; height:38px; border-radius:8px; overflow:hidden; display:flex; align-items:center; justify-content:center; color:#fff; font-weight:800; font-size:1rem; text-transform:uppercase; }
+    .jd-prov-thumb img { width:100%; height:100%; object-fit:cover; }
+    .jd-prov-body { display:flex; flex-direction:column; line-height:1.25; min-width:0; }
+    .jd-prov-body strong { font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .jd-prov-body small { color:var(--nb-text-muted); font-size:.72rem; display:flex; align-items:center; gap:5px; }
+    .jd-prov-rate { background:#1a7a4a; color:#fff; border-radius:4px; padding:1px 5px; font-weight:700; display:inline-flex; align-items:center; gap:2px; }
+    .jd-prov-rate i { color:#fff; font-size:.6rem; }
+    .jd-prov-cnt { color:var(--nb-text-muted); }
     @media (max-width:560px){ .jd-bar{ flex-wrap:wrap; } .jd-loc,.jd-svc{ flex:1 1 100%; } .jd-divider{ display:none; } .jd-btn{ flex:1 1 100%; border-radius:0 0 var(--radius-lg) var(--radius-lg); padding:12px; } }
   `]
 })
@@ -134,107 +176,144 @@ export class JdSearchBarComponent implements OnInit, OnDestroy {
   trending = TRENDING;
   districts = DISTRICTS;
 
+  // Live provider results for the typed query (debounced /providers search).
+  providerResults    = signal<Provider[]>([]);
+  searchingProviders = signal(false);
+
   private rotTimer: any;
   private blurTimer: any;
+  private searchTimer: any;
   private recognition: any = null;
   voiceSupported = typeof (window as any) !== 'undefined' &&
     !!((window as any).webkitSpeechRecognition || (window as any).SpeechRecognition);
 
   placeholder = computed(() => PLACEHOLDERS[this.placeholderIdx() % PLACEHOLDERS.length]);
 
-  filteredDistricts = computed(() => {
+  get filteredDistricts() {
     const v = this.location.trim().toLowerCase();
     return (v ? DISTRICTS.filter(d => d.toLowerCase().includes(v)) : DISTRICTS).slice(0, 8);
-  });
+  }
 
-  // Popular services with their category label (11.8) — expanded for all small-business types
-  private services = [
-    // Home Services
-    { name:'Plumber', category:'Home Services' }, { name:'Electrician', category:'Home Services' },
-    { name:'House Cleaning', category:'Home Services' }, { name:'Carpenter', category:'Home Services' },
-    { name:'Painter', category:'Home Services' }, { name:'AC Repair', category:'Home Services' },
-    { name:'Appliance Repair', category:'Home Services' }, { name:'Pest Control', category:'Home Services' },
-    // Education
-    { name:'Maths Tutor', category:'Education' }, { name:'Science Tutor', category:'Education' },
-    { name:'English Tutor', category:'Education' }, { name:'Music Classes', category:'Education' },
-    { name:'Drawing Classes', category:'Education' }, { name:'Coding Classes', category:'Education' },
-    { name:'Dance Classes', category:'Education' }, { name:'Chess Coaching', category:'Education' },
-    // Food & Catering
-    { name:'Tiffin Service', category:'Food' }, { name:'Home Cook', category:'Food' },
-    { name:'Catering Service', category:'Food' }, { name:'Biryani Catering', category:'Food' },
-    { name:'Pickles & Homemade Food', category:'Food' }, { name:'Meal Subscription', category:'Food' },
-    // Bakery
-    { name:'Cake Shops', category:'Bakery' }, { name:'Custom Cakes', category:'Bakery' },
-    { name:'Bakery', category:'Bakery' }, { name:'Sweet Shops', category:'Bakery' },
-    { name:'Chocolates', category:'Bakery' }, { name:'Mithai', category:'Bakery' },
-    // Beauty & Salon
-    { name:'Beauty Salon', category:'Beauty & Salon' }, { name:'Hair Salon', category:'Beauty & Salon' },
-    { name:'Bridal Makeup', category:'Beauty & Salon' }, { name:'Makeup Artist', category:'Beauty & Salon' },
-    { name:'Mehndi Artist', category:'Beauty & Salon' }, { name:'Nail Art', category:'Beauty & Salon' },
-    { name:'Eyebrow Threading', category:'Beauty & Salon' },
-    // Fitness & Wellness
-    { name:'Yoga Classes', category:'Fitness' }, { name:'Personal Trainer', category:'Fitness' },
-    { name:'Zumba Classes', category:'Fitness' }, { name:'Gym', category:'Fitness' },
-    { name:'Aerobics', category:'Fitness' }, { name:'Meditation Coach', category:'Fitness' },
-    // Spa & Massage
-    { name:'Spa', category:'Wellness' }, { name:'Body Massage', category:'Wellness' },
-    { name:'Head Massage', category:'Wellness' }, { name:'Physiotherapy', category:'Wellness' },
-    // Health & Medical
-    { name:'Dietitian', category:'Health' }, { name:'Nurse at Home', category:'Health' },
-    { name:'Ayurveda', category:'Health' }, { name:'Homeopathy', category:'Health' },
-    // Events & Photography
-    { name:'Photography', category:'Events' }, { name:'Videography', category:'Events' },
-    { name:'Event Planner', category:'Events' }, { name:'Wedding Planner', category:'Events' },
-    { name:'Birthday Decoration', category:'Events' }, { name:'DJ Services', category:'Events' },
-    { name:'Tent & Mandap', category:'Events' }, { name:'Flower Decoration', category:'Events' },
-    // Repair Services
-    { name:'Mobile Repair', category:'Repair' }, { name:'Laptop Repair', category:'Repair' },
-    { name:'TV Repair', category:'Repair' }, { name:'Refrigerator Repair', category:'Repair' },
-    { name:'Washing Machine Repair', category:'Repair' }, { name:'Inverter & Battery', category:'Repair' },
-    // Automotive
-    { name:'Car Service', category:'Automotive' }, { name:'Bike Service', category:'Automotive' },
-    { name:'Car Wash', category:'Automotive' }, { name:'Driving School', category:'Automotive' },
-    { name:'Auto Mechanic', category:'Automotive' }, { name:'Tyre Puncture', category:'Automotive' },
-    // Clothing & Fashion
-    { name:'Tailor', category:'Fashion' }, { name:'Boutique', category:'Fashion' },
-    { name:'Blouse Stitching', category:'Fashion' }, { name:'Embroidery', category:'Fashion' },
-    { name:'Laundry & Dry Cleaning', category:'Fashion' },
-    // Pet Care
-    { name:'Dog Grooming', category:'Pet Care' }, { name:'Pet Boarding', category:'Pet Care' },
-    { name:'Dog Walker', category:'Pet Care' }, { name:'Vet at Home', category:'Pet Care' },
-    // Cleaning
-    { name:'Sofa Cleaning', category:'Cleaning' }, { name:'Carpet Cleaning', category:'Cleaning' },
-    { name:'Kitchen Deep Clean', category:'Cleaning' }, { name:'Bathroom Cleaning', category:'Cleaning' },
-    // IT & Tech
-    { name:'Web Developer', category:'IT' }, { name:'Computer Repair', category:'IT' },
-    { name:'Data Recovery', category:'IT' }, { name:'CCTV Installation', category:'IT' },
-    // Transport
-    { name:'Packers & Movers', category:'Transport' }, { name:'Mini Tempo', category:'Transport' },
-    // Legal & Finance
-    { name:'Chartered Accountant', category:'Finance' }, { name:'Tax Consultant', category:'Finance' },
-    { name:'Lawyer', category:'Legal' }, { name:'Notary', category:'Legal' },
-    // Interior Design
-    { name:'Interior Designer', category:'Interior' }, { name:'Furniture Repair', category:'Interior' },
-    { name:'Curtains & Blinds', category:'Interior' },
-    // Childcare
-    { name:'Babysitter', category:'Childcare' }, { name:'Creche', category:'Childcare' },
-    { name:'Nanny', category:'Childcare' },
+  // Static service-type suggestions shown alongside DB categories.
+  // DB categories are the primary source — these supplement with specific service names.
+  private readonly staticServices = [
+    { name:'Plumber',              category:'Home Services' },
+    { name:'Electrician',          category:'Home Services' },
+    { name:'Carpenter',            category:'Home Services' },
+    { name:'Painter',              category:'Home Services' },
+    { name:'AC Repair',            category:'Home Services' },
+    { name:'Appliance Repair',     category:'Home Services' },
+    { name:'Pest Control',         category:'Home Services' },
+    { name:'Maths Tutor',          category:'Education'     },
+    { name:'Science Tutor',        category:'Education'     },
+    { name:'English Tutor',        category:'Education'     },
+    { name:'Coding Classes',       category:'Education'     },
+    { name:'Dance Classes',        category:'Education'     },
+    { name:'Tiffin Service',       category:'Food'          },
+    { name:'Home Cook',            category:'Food'          },
+    { name:'Catering Service',     category:'Food'          },
+    { name:'Custom Cakes',         category:'Bakery'        },
+    { name:'Sweet Shops',          category:'Bakery'        },
+    { name:'Bridal Makeup',        category:'Beauty & Salon'},
+    { name:'Makeup Artist',        category:'Beauty & Salon'},
+    { name:'Mehndi Artist',        category:'Beauty & Salon'},
+    { name:'Yoga Classes',         category:'Fitness'       },
+    { name:'Personal Trainer',     category:'Fitness'       },
+    { name:'Gym',                  category:'Fitness'       },
+    { name:'Body Massage',         category:'Wellness'      },
+    { name:'Physiotherapy',        category:'Wellness'      },
+    { name:'Dietitian',            category:'Health'        },
+    { name:'Nurse at Home',        category:'Health'        },
+    { name:'Photography',          category:'Events'        },
+    { name:'Wedding Planner',      category:'Events'        },
+    { name:'Birthday Decoration',  category:'Events'        },
+    { name:'Mobile Repair',        category:'Repair'        },
+    { name:'Laptop Repair',        category:'Repair'        },
+    { name:'Car Service',          category:'Automotive'    },
+    { name:'Driving School',       category:'Automotive'    },
+    { name:'Tailor',               category:'Fashion'       },
+    { name:'Dog Grooming',         category:'Pet Care'      },
+    { name:'Sofa Cleaning',        category:'Cleaning'      },
+    { name:'Web Developer',        category:'IT'            },
+    { name:'Computer Repair',      category:'IT'            },
+    { name:'Packers & Movers',     category:'Transport'     },
+    { name:'Chartered Accountant', category:'Finance'       },
+    { name:'Interior Designer',    category:'Interior'      },
+    { name:'Babysitter',           category:'Childcare'     },
   ];
-  filteredServices = computed(() => {
-    const v = this.q.trim().toLowerCase();
-    return this.services.filter(s => s.name.toLowerCase().includes(v)).slice(0, 8);
-  });
 
-  constructor() {}
+  // DB categories take priority; static services fill remaining slots up to 8.
+  get filteredServices(): { name: string; category: string; icon?: string }[] {
+    const v = this.q.trim().toLowerCase();
+    if (!v) return [];
+
+    const catMatches = this.catSvc.cats()
+      .filter(c => c.label.toLowerCase().includes(v))
+      .map(c => ({ name: c.label, category: 'Category', icon: c.icon }));
+
+    const catNames = new Set(catMatches.map(c => c.name.toLowerCase()));
+    const svcMatches = this.staticServices
+      .filter(s => s.name.toLowerCase().includes(v) && !catNames.has(s.name.toLowerCase()));
+
+    return [...catMatches, ...svcMatches].slice(0, 8);
+  }
+
+  constructor(
+    readonly catSvc: CategoryService,
+    private api: ApiService,
+    private router: Router,
+  ) {}
+
+  // Fired on every keystroke in the service box. Filters categories instantly
+  // (client-side, reactive) and debounces a live /providers search (300ms).
+  onQueryChange() {
+    this.svcOpen.set(true);
+    clearTimeout(this.searchTimer);
+    const q = this.q.trim();
+    if (!q) { this.providerResults.set([]); this.searchingProviders.set(false); return; }
+    this.searchingProviders.set(true);
+    this.searchTimer = setTimeout(() => this.fetchProviders(q), 300);
+  }
+
+  private fetchProviders(q: string) {
+    this.api.get<PaginatedResponse<Provider>>('/providers', { search: q, limit: 3, sort: 'rating' }).subscribe({
+      next: res => {
+        // Ignore stale responses if the query changed while in flight.
+        if (this.q.trim() !== q) return;
+        this.providerResults.set(res.data ?? []);
+        this.searchingProviders.set(false);
+      },
+      error: () => { if (this.q.trim() === q) this.searchingProviders.set(false); },
+    });
+  }
+
+  // Bold the matched portion of a suggestion. Output is bound via [innerHTML];
+  // Angular's sanitizer strips anything unsafe, and we HTML-escape each part.
+  highlightHtml(text: string): string {
+    const v = this.q.trim();
+    if (!v) return this.esc(text);
+    const idx = text.toLowerCase().indexOf(v.toLowerCase());
+    if (idx < 0) return this.esc(text);
+    return this.esc(text.slice(0, idx)) + '<b>' + this.esc(text.slice(idx, idx + v.length)) + '</b>' + this.esc(text.slice(idx + v.length));
+  }
+  private esc(s: string): string {
+    return s.replace(/[&<>"]/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]!));
+  }
+
+  pickProvider(p: Provider) {
+    this.svcOpen.set(false);
+    this.router.navigate(['/provider', p._id]);
+  }
 
   ngOnInit() {
+    this.catSvc.load();
     this.location = this.initialLocation();
     this.recentSearches.set(this.read(RECENT_KEY));
     this.recentLocations.set(this.read(RECENT_LOC_KEY));
     this.rotTimer = setInterval(() => this.placeholderIdx.update(i => i + 1), 2800);
   }
 
-  ngOnDestroy() { clearInterval(this.rotTimer); clearTimeout(this.blurTimer); }
+  ngOnDestroy() { clearInterval(this.rotTimer); clearTimeout(this.blurTimer); clearTimeout(this.searchTimer); }
 
   closeSoon(which: 'loc' | 'svc') {
     this.blurTimer = setTimeout(() => {

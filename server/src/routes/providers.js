@@ -65,12 +65,12 @@ const completionPct = (p) => {
 // GET /api/providers — browse with filters + keyword search (7.10)
 router.get('/', async (req, res, next) => {
   try {
-    const { category, subCategory, isOnline, rating, city, district, search, page = 1, limit = 12, sort = 'rating' } = req.query;
+    const { category, subCategory, verified, rating, city, district, search, page = 1, limit = 12, sort = 'rating' } = req.query;
 
-    const filter = { status: 'active', isVerified: true };
+    const filter = { status: 'active' };
+    if (verified === 'true')                  filter.isVerified = true;
     if (category && category !== 'all')       filter.category = category;
     if (subCategory && subCategory !== 'all') filter.subCategory = subCategory;
-    if (isOnline === 'true')                  filter.isOnline  = true;
     if (rating)                               filter.ratingAvg = { $gte: +rating };
 
     // Fuzzy keyword search across business name, sub-category, skills and bio.
