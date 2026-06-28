@@ -127,8 +127,8 @@ a:hover { color: var(--nb-primary); }
 .btn-nb-accent::after  { content:''; position:absolute; width:80px; height:80px; background:rgba(255,255,255,.4); border-radius:50%; top:50%; left:50%; transform:translate(-50%,-50%) scale(0); opacity:0; pointer-events:none; }
 .btn-nb-accent:active::after { animation: ripple .45s ease-out; }
 
-.btn-nb-outline  { position:relative; overflow:hidden; background:transparent; color:var(--nb-primary); border:2px solid var(--nb-primary); border-radius:var(--radius-md); font-family:var(--font-display); font-weight:600; padding:.55rem 1.4rem; transition:all .25s cubic-bezier(.4,0,.2,1); cursor:pointer; }
-.btn-nb-outline:hover  { background:var(--nb-primary); color:#fff; transform:translateY(-2px); box-shadow:var(--shadow-md); }
+.btn-nb-outline  { position:relative; overflow:hidden; background:transparent; color:var(--nb-primary) !important; border:2px solid var(--nb-primary); border-radius:var(--radius-md); font-family:var(--font-display); font-weight:600; padding:.55rem 1.4rem; transition:all .25s cubic-bezier(.4,0,.2,1); cursor:pointer; }
+.btn-nb-outline:hover  { background:var(--nb-primary); color:#fff !important; transform:translateY(-2px); box-shadow:var(--shadow-md); }
 .btn-nb-outline:active { animation: buttonClick .2s ease-out; }
 .btn-nb-outline::after { content:''; position:absolute; width:80px; height:80px; background:rgba(26,60,94,.15); border-radius:50%; top:50%; left:50%; transform:translate(-50%,-50%) scale(0); opacity:0; pointer-events:none; }
 .btn-nb-outline:active::after { animation: ripple .45s ease-out; }
