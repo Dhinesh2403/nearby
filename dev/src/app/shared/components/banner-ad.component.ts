@@ -32,7 +32,7 @@ import { environment } from '../../../environments/environment';
       <!-- Web fallback: placeholder when AdSense slot not configured yet -->
       <div class="ad-slot" role="complementary" aria-label="Advertisement">
         <span class="ad-tag">Ad</span>
-        <span class="ad-hint">Sponsored · ads support free listings on NearBy</span>
+        <span class="ad-hint">Sponsored · ads support free listings on NearbyPro</span>
       </div>
     }
   `,

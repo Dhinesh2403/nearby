@@ -1,5 +1,5 @@
 // src/app/features/home/home.component.ts
-import { Component, OnInit, signal, computed } from '@angular/core';
+import { Component, OnInit, signal, computed, inject } from '@angular/core';
 import { Router, RouterLink }  from '@angular/router';
 import { CommonModule }        from '@angular/common';
 import { FormsModule }         from '@angular/forms';
@@ -7,6 +7,7 @@ import { ApiService, Provider, PaginatedResponse } from '../../core/services/api
 import { CategoryService } from '../../core/services/category.service';
 import { JdSearchBarComponent } from '../../shared/components/jd-search-bar.component';
 import { SettingsService } from '../../core/services/settings.service';
+import { SeoService } from '../../services/seo.service';
 
 @Component({
   selector: 'app-home',
@@ -80,7 +81,7 @@ import { SettingsService } from '../../core/services/settings.service';
     <!-- HOW IT WORKS -->
     <section class="py-5" style="background:var(--nb-bg)">
       <div class="container">
-        <div class="text-center mb-5"><h2 class="section-title">How NearBy Works</h2><p class="section-sub">Three simple steps</p></div>
+        <div class="text-center mb-5"><h2 class="section-title">How NearbyPro Works</h2><p class="section-sub">Three simple steps</p></div>
         <div class="row g-4">
           @for (s of steps; track s.n) {
             <div class="col-md-4">
@@ -228,9 +229,17 @@ export class HomeComponent implements OnInit {
 
   // Auto-detected area label (e.g. "Vadavalli, Coimbatore") for the location box (11.2)
 
+  private seo = inject(SeoService);
+
   constructor(private api: ApiService, private router: Router, public settings: SettingsService, private catSvc: CategoryService) { catSvc.load(); }
 
   ngOnInit() {
+    this.seo.setSeo(
+      'NearbyPro — Find Local Services & Small Businesses Near You',
+      'Discover trusted local service providers near you in India. Find plumbers, tutors, home ' +
+        'bakers, salons, electricians and more on NearbyPro. Contact directly — free for customers.',
+      'local services near me, find plumber, tutor near me, salon near me, hyperlocal marketplace India, NearbyPro, Coimbatore services'
+    );
     this.api.get<PaginatedResponse<Provider>>('/providers', { limit: '6', sort: 'rating' })
       .subscribe({
         next: res => { this.topProviders.set(res.data); this.loadingProviders.set(false); },

@@ -46,11 +46,36 @@ export const routes: Routes = [
   { path: 'admin',                canActivate: [authGuard, adminGuard],
     loadComponent: () => import('./features/admin/admin-dashboard.component').then(m => m.AdminDashboardComponent) },
 
+  { path: 'about',
+    loadComponent: () => import('./features/static/about.component').then(m => m.AboutComponent) },
+
+  { path: 'how-it-works',
+    loadComponent: () => import('./features/static/how-it-works.component').then(m => m.HowItWorksComponent) },
+
+  { path: 'faq',
+    loadComponent: () => import('./features/static/faq.component').then(m => m.FaqComponent) },
+
+  { path: 'blog',
+    loadComponent: () => import('./features/static/blog.component').then(m => m.BlogComponent) },
+
+  { path: 'blog/find-trusted-plumber-coimbatore',
+    loadComponent: () => import('./features/static/blog/find-trusted-plumber-coimbatore.component').then(m => m.PlumberArticleComponent) },
+
+  { path: 'blog/benefits-of-hiring-local-professionals',
+    loadComponent: () => import('./features/static/blog/benefits-of-hiring-local-professionals.component').then(m => m.LocalBenefitsArticleComponent) },
+
+  { path: 'blog/why-hyperlocal-marketplaces-growing-india',
+    loadComponent: () => import('./features/static/blog/why-hyperlocal-marketplaces-growing-india.component').then(m => m.HyperlocalArticleComponent) },
+
   { path: 'terms',
     loadComponent: () => import('./features/legal/terms.component').then(m => m.TermsComponent) },
 
   { path: 'privacy',
     loadComponent: () => import('./features/legal/privacy.component').then(m => m.PrivacyComponent) },
+
+  // Friendly aliases for the legal pages
+  { path: 'privacy-policy',     redirectTo: 'privacy', pathMatch: 'full' },
+  { path: 'terms-of-service',   redirectTo: 'terms',   pathMatch: 'full' },
 
   { path: 'auth',      redirectTo: 'auth/login',           pathMatch: 'full' },
   { path: 'dashboard', redirectTo: 'dashboard/customer',   pathMatch: 'full' },

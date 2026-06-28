@@ -27,7 +27,7 @@ interface Settings {
       <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
         <div>
           <h2 class="section-title">Admin Panel</h2>
-          <p class="section-sub mb-0">NearBy Platform Control Centre</p>
+          <p class="section-sub mb-0">NearbyPro Platform Control Centre</p>
         </div>
         <span class="nb-badge nb-badge-danger" style="font-size:.8rem;padding:6px 14px">
           <i class="bi bi-shield-fill me-1"></i>Admin Access
@@ -421,7 +421,7 @@ export class AdminDashboardComponent implements OnInit {
       next: conv => {
         const ref   = 'CMP-' + String(c._id).slice(-6).toUpperCase();
         const draft =
-          `Hello ${c.raisedBy?.name ?? ''}, NearBy Support here regarding your complaint ` +
+          `Hello ${c.raisedBy?.name ?? ''}, NearbyPro Support here regarding your complaint ` +
           `${ref} (${c.type}) against ${c.against?.name ?? 'the provider'}: "${c.description}". ` +
           `Could you share more details so we can help resolve this?`;
         this.router.navigate(['/chat', conv._id], { queryParams: { draft } });

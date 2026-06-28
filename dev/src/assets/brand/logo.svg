@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="260" height="80" viewBox="0 0 260 80" role="img">
-  <title>NearBy Pro</title>
-  <desc>NearBy Pro — hyperlocal service discovery</desc>
+  <title>NearbyPro</title>
+  <desc>NearbyPro — hyperlocal service discovery</desc>
 
   <!-- Pin icon -->
   <path d="M32 4 C18 4 8 14 8 28 C8 46 32 68 32 68 C32 68 56 46 56 28 C56 14 46 4 32 4 Z" fill="#0F2744"/>
@@ -11,7 +11,7 @@
   <line x1="22" y1="27" x2="26" y2="27" stroke="#F5C518" stroke-width="2" stroke-linecap="round"/>
   <line x1="38" y1="27" x2="42" y2="27" stroke="#F5C518" stroke-width="2" stroke-linecap="round"/>
 
-  <!-- NearBy wordmark -->
+  <!-- NearbyPro wordmark -->
   <text x="66" y="42" font-family="system-ui,-apple-system,sans-serif" font-size="34" font-weight="800" letter-spacing="-1" fill="#0F2744">Near</text>
   <text x="154" y="42" font-family="system-ui,-apple-system,sans-serif" font-size="34" font-weight="800" letter-spacing="-1" fill="#F5C518">By</text>
 

@@ -17,7 +17,7 @@ import { SettingsService } from '../../core/services/settings.service';
     <div class="pr-wrap">
       <div class="pr-card">
         <div class="pr-icon"><i class="bi bi-briefcase-fill"></i></div>
-        <h1 class="pr-title">Grow your business on <span>NearBy</span></h1>
+        <h1 class="pr-title">Grow your business on <span>NearbyPro</span></h1>
         <p class="pr-sub">List your services free and reach thousands of nearby customers.
           Get found, get contacted, get more work.</p>
 

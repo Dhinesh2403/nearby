@@ -100,7 +100,7 @@ type Step = 'phone' | 'password' | 'otp' | 'profile' | 'setpass';
                 <button class="chg-btn" type="button" (click)="goBack()">Change</button>
               </div>
               <h2 class="step-title">Enter your password</h2>
-              <p class="step-sub">Sign in to your NearBy account</p>
+              <p class="step-sub">Sign in to your NearbyPro account</p>
               <label class="nb-label">Password</label>
               <div class="inp-eye">
                 <input [type]="showPass ? 'text' : 'password'" class="nb-input"
@@ -525,7 +525,7 @@ export class LoginComponent implements OnInit {
       ? this.auth.registerDirect(this.phone, role, profile, this.newPassword, this.isForgot)
       : this.auth.firebaseVerify(this.pendingToken, role, profile, this.newPassword);
     req$.subscribe({
-      next: ()  => this.navigateToDashboard(this.isForgot ? 'Password updated!' : 'Welcome to NearBy!'),
+      next: ()  => this.navigateToDashboard(this.isForgot ? 'Password updated!' : 'Welcome to NearbyPro!'),
       error: (msg: string) => { this.busy.set(false); this.error.set(msg); },
     });
   }

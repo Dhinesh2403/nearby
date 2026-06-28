@@ -17,7 +17,7 @@ import { ConfirmDialogComponent } from './shared/components/confirm-dialog.compo
     <nav class="navbar navbar-expand-lg nb-navbar sticky-top">
       <div class="container">
         <a class="navbar-brand nb-brand" routerLink="/">
-          <img src="assets/brand/logo.svg" alt="NearBy Pro" class="nb-logo" height="38" />
+          <img src="assets/brand/logo.svg" alt="NearbyPro" class="nb-logo" height="38" />
         </a>
 
         <button class="navbar-toggler border-0" type="button"
@@ -34,6 +34,17 @@ import { ConfirmDialogComponent } from './shared/components/confirm-dialog.compo
             @if (!isAdmin()) {
               <li class="nav-item">
                 <a class="nav-link" routerLink="/browse" routerLinkActive="active">Browse</a>
+              </li>
+            }
+            @if (!isAdmin()) {
+              <li class="nav-item">
+                <a class="nav-link" routerLink="/how-it-works" routerLinkActive="active">How It Works</a>
+              </li>
+              <li class="nav-item">
+                <a class="nav-link" routerLink="/blog" routerLinkActive="active">Blog</a>
+              </li>
+              <li class="nav-item">
+                <a class="nav-link" routerLink="/about" routerLinkActive="active">About</a>
               </li>
             }
             @if (isLoggedIn() && !isAdmin()) {
@@ -154,28 +165,36 @@ import { ConfirmDialogComponent } from './shared/components/confirm-dialog.compo
       <div class="container">
         <div class="row g-4 mb-3">
           <div class="col-md-4">
-              <img src="assets/brand/logo-white.svg" alt="NearBy Pro" height="42"
+              <img src="assets/brand/logo-white.svg" alt="NearbyPro" height="42"
                  style="margin-bottom:.5rem; display:block" />
             <p style="color:rgba(255,255,255,.6);font-size:.875rem">
               Connecting your city, one service at a time.
             </p>
           </div>
-          <div class="col-md-2">
+          <div class="col-6 col-md-2">
             <p class="footer-heading">Platform</p>
             <div class="footer-links">
               <a routerLink="/browse">Browse</a>
+              <a routerLink="/how-it-works">How It Works</a>
               <a routerLink="/auth/login" [queryParams]="{mode:'signup'}">Sign Up</a>
             </div>
           </div>
-          <div class="col-md-3">
-            <p class="footer-heading">Categories</p>
+          <div class="col-6 col-md-2">
+            <p class="footer-heading">Company</p>
             <div class="footer-links">
-              <span>Home Services</span>
-              <span>Education</span>
-              <span>Food & Essentials</span>
+              <a routerLink="/about">About</a>
+              <a routerLink="/blog">Blog</a>
+              <a routerLink="/faq">FAQ</a>
             </div>
           </div>
-          <div class="col-md-3">
+          <div class="col-6 col-md-2">
+            <p class="footer-heading">Legal</p>
+            <div class="footer-links">
+              <a routerLink="/terms">Terms of Service</a>
+              <a routerLink="/privacy">Privacy Policy</a>
+            </div>
+          </div>
+          <div class="col-6 col-md-2">
             <p class="footer-heading">Contact</p>
             <div class="footer-links">
               <span>admin&#64;nearbypro.online</span>
@@ -184,7 +203,7 @@ import { ConfirmDialogComponent } from './shared/components/confirm-dialog.compo
           </div>
         </div>
         <div class="footer-bottom">
-          <span>© 2026 NearBy. All rights reserved.</span>
+          <span>© 2026 NearbyPro. All rights reserved.</span>
           <span class="footer-legal">
             <a routerLink="/terms">Terms &amp; Conditions</a>
             <a routerLink="/privacy">Privacy Policy</a>

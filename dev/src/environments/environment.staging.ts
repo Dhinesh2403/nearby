@@ -2,7 +2,7 @@ export const environment = {
   production: true,
   apiUrl: 'https://nearby-staging.onrender.com/api',
   socketUrl: 'https://nearby-staging.onrender.com',
-  appName: 'NearBy',
+  appName: 'NearbyPro',
   firebase: {
     apiKey: "AIzaSyBQeynUVee5L_4CrqfYgAmB-FRoQeMVaT4",
     authDomain: "nearby-b43ea.firebaseapp.com",
