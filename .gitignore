@@ -48,7 +48,6 @@ Thumbs.db
 *.zip
 
 # ── Docs generated locally ─────────────────────────────────────
-README.md
 docs/
 
 # ── IDE / tool state ───────────────────────────────────────────
