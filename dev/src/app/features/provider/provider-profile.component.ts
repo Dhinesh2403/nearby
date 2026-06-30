@@ -456,7 +456,7 @@ interface Review { id:string; name:string; initial:string; color:string; rating:
       position: relative;
       display: grid;
       grid-template-columns: 1fr 1fr;
-      height: 360px;
+      grid-template-rows: 360px;
       gap: 3px;
       background: #111;
       overflow: hidden;
@@ -488,7 +488,7 @@ interface Review { id:string; name:string; initial:string; color:string; rating:
     .pp-gallery-more span { font-size: 1.75rem; font-weight: 800; line-height: 1; }
     .pp-gallery-more small { font-size: .85rem; opacity: .8; }
     @media (max-width: 767px) {
-      .pp-gallery { height: 240px; grid-template-columns: 1fr; }
+      .pp-gallery { grid-template-rows: 240px; grid-template-columns: 1fr; }
       .pp-gallery-grid { display: none; }
     }
 
