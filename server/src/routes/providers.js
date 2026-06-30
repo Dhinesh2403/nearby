@@ -81,6 +81,16 @@ router.post('/search', async (req, res, next) => {
     if (search && search.trim()) {
       const safe = search.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');  // escape regex
       const rx   = new RegExp(safe, 'i');
+
+      // A provider's category is stored as a slug (e.g. "food"); its display
+      // label ("Food & Catering") lives in the Category collection. Resolve any
+      // categories whose label/slug matches the query so a free-text search for
+      // a category name (e.g. "Food & Catering", "catering") finds providers in
+      // that category — they wouldn't otherwise match on their text fields.
+      const matchedCats = await Category.find({ $or: [{ label: rx }, { slug: rx }] })
+        .select('slug').lean();
+      const catSlugs = matchedCats.map(c => c.slug);
+
       filter.$or = [
         { businessName: rx },
         { subCategory:  rx },
@@ -88,6 +98,7 @@ router.post('/search', async (req, res, next) => {
         { bio:          rx },
         { tagline:      rx },
       ];
+      if (catSlugs.length) filter.$or.push({ category: { $in: catSlugs } });
     }
 
     const sortMap = { rating: { ratingAvg: -1 }, popular: { ratingCount: -1 }, price_asc: { price: 1 }, price_desc: { price: -1 } };
