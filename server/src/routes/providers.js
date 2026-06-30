@@ -62,13 +62,17 @@ const completionPct = (p) => {
   return Math.round((checks.filter(Boolean).length / checks.length) * 100);
 };
 
-// GET /api/providers — browse with filters + keyword search (7.10)
-router.get('/', async (req, res, next) => {
+// POST /api/providers/search — browse with filters + keyword search (7.10)
+// Filters travel in the JSON request body (not the query string) so callers
+// pass a single structured payload. Public — discovery must work for guests.
+router.post('/search', async (req, res, next) => {
   try {
-    const { category, subCategory, verified, rating, city, district, search, page = 1, limit = 12, sort = 'rating' } = req.query;
+    const { category, subCategory, verified, rating, city, district, search, page = 1, limit = 12, sort = 'rating' } = req.body || {};
+    const pageNum  = Number(page)  || 1;
+    const limitNum = Number(limit) || 12;
 
     const filter = { status: 'active' };
-    if (verified === 'true')                  filter.isVerified = true;
+    if (verified === true || verified === 'true') filter.isVerified = true;
     if (category && category !== 'all')       filter.category = category;
     if (subCategory && subCategory !== 'all') filter.subCategory = subCategory;
     if (rating)                               filter.ratingAvg = { $gte: +rating };
@@ -107,8 +111,8 @@ router.get('/', async (req, res, next) => {
     if (city) all = all.filter(p => p.userId?.location?.city?.toLowerCase().includes(city.toLowerCase()));
 
     const total   = all.length;
-    const records = all.slice((page - 1) * limit, page * limit);
-    paginated(res, records, total, page, limit);
+    const records = all.slice((pageNum - 1) * limitNum, pageNum * limitNum);
+    paginated(res, records, total, pageNum, limitNum);
   } catch (e) { next(e); }
 });
 

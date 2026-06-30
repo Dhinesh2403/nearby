@@ -3,7 +3,7 @@ import { Component, OnInit, signal, computed } from '@angular/core';
 import { CommonModule }  from '@angular/common';
 import { FormsModule }   from '@angular/forms';
 import { RouterLink, ActivatedRoute, Router } from '@angular/router';
-import { ApiService, Provider, PaginatedResponse, ApiResponse } from '../../core/services/api.service';
+import { ApiService, Provider, ApiResponse, ProviderSearchFilters } from '../../core/services/api.service';
 import { CategoryService } from '../../core/services/category.service';
 import { AuthService } from '../../core/auth/auth.service';
 import { ToastService } from '../../core/services/toast.service';
@@ -372,15 +372,15 @@ export class BrowseComponent implements OnInit {
 
   load() {
     this.loading.set(true);
-    const params: Record<string, any> = { page: this.page(), limit: 12, sort: this.sort };
-    if (this.cat() !== 'all')     params['category'] = this.cat();
-    if (this.subCat() !== 'all')  params['subCategory'] = this.subCat();
-    if (this.minRating() > 0)     params['rating']   = this.minRating();
-    if (this.verifiedOnly())      params['verified']  = true;
-    if (this.q.trim())            params['search']    = this.q.trim();
-    if (this.district())          params['district']  = this.district();
+    const filters: ProviderSearchFilters = { page: this.page(), limit: 12, sort: this.sort };
+    if (this.cat() !== 'all')     filters.category    = this.cat();
+    if (this.subCat() !== 'all')  filters.subCategory = this.subCat();
+    if (this.minRating() > 0)     filters.rating      = this.minRating();
+    if (this.verifiedOnly())      filters.verified    = true;
+    if (this.q.trim())            filters.search      = this.q.trim();
+    if (this.district())          filters.district    = this.district();
 
-    this.api.get<PaginatedResponse<Provider>>('/providers', params).subscribe({
+    this.api.searchProviders(filters).subscribe({
       next: res => {
         const data = res.data;
         this.providers.set(data);
@@ -391,12 +391,17 @@ export class BrowseComponent implements OnInit {
     });
   }
 
-  onSearch2(e: { location: string; q: string }) {
-    this.q = e.q;
+  onSearch2(e: { location: string; q: string; category?: string }) {
     if (e.location) this.district.set(e.location);
-    // A keyword search is a fresh, cross-category lookup — don't keep it scoped
-    // to whatever category the user arrived with (e.g. from a homepage tile).
-    if (e.q.trim()) { this.cat.set('all'); this.subCat.set('all'); }
+    if (e.category) {
+      // Picked a category suggestion — filter by category, not keyword.
+      this.cat.set(e.category); this.subCat.set('all'); this.q = '';
+    } else {
+      this.q = e.q;
+      // A keyword search is a fresh, cross-category lookup — don't keep it scoped
+      // to whatever category the user arrived with (e.g. from a homepage tile).
+      if (e.q.trim()) { this.cat.set('all'); this.subCat.set('all'); }
+    }
     this.page.set(1);
     this.load();
   }

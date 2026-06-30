@@ -22,6 +22,12 @@ export class ApiService {
     return this.http.post<T>(`${this.BASE}${path}`, body);
   }
 
+  // Browse / search providers. Filters are sent as a JSON payload (POST body)
+  // rather than a query string, so callers pass one structured object.
+  searchProviders(filters: ProviderSearchFilters = {}): Observable<PaginatedResponse<Provider>> {
+    return this.post<PaginatedResponse<Provider>>('/providers/search', filters);
+  }
+
   put<T>(path: string, body: any): Observable<T> {
     return this.http.put<T>(`${this.BASE}${path}`, body);
   }
@@ -55,6 +61,21 @@ export interface Provider {
   status:       string;
   banReason?:   string;
   availability: { days: string[]; startTime: string; endTime: string };
+}
+
+// Filters accepted by the provider browse/search endpoint. All optional —
+// omitted fields simply aren't applied server-side.
+export interface ProviderSearchFilters {
+  category?:    string;
+  subCategory?: string;
+  verified?:    boolean;
+  rating?:      number;
+  city?:        string;
+  district?:    string;
+  search?:      string;
+  page?:        number;
+  limit?:       number;
+  sort?:        string;
 }
 
 export interface ApiResponse<T> {

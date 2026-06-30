@@ -3,7 +3,7 @@ import { Component, OnInit, signal, computed, inject } from '@angular/core';
 import { Router, RouterLink }  from '@angular/router';
 import { CommonModule }        from '@angular/common';
 import { FormsModule }         from '@angular/forms';
-import { ApiService, Provider, PaginatedResponse } from '../../core/services/api.service';
+import { ApiService, Provider } from '../../core/services/api.service';
 import { CategoryService } from '../../core/services/category.service';
 import { JdSearchBarComponent } from '../../shared/components/jd-search-bar.component';
 import { SettingsService } from '../../core/services/settings.service';
@@ -240,7 +240,7 @@ export class HomeComponent implements OnInit {
         'bakers, salons, electricians and more on NearbyPro. Contact directly — free for customers.',
       'local services near me, find plumber, tutor near me, salon near me, hyperlocal marketplace India, NearbyPro, Coimbatore services'
     );
-    this.api.get<PaginatedResponse<Provider>>('/providers', { limit: '6', sort: 'rating' })
+    this.api.searchProviders({ limit: 6, sort: 'rating' })
       .subscribe({
         next: res => { this.topProviders.set(res.data); this.loadingProviders.set(false); },
         error: ()  => this.loadingProviders.set(false),
@@ -250,9 +250,11 @@ export class HomeComponent implements OnInit {
 
   browseCat(id: string)         { this.router.navigate(['/browse'], { queryParams: { category: id } }); }
 
-  onJdSearch(e: { location: string; q: string }) {
+  onJdSearch(e: { location: string; q: string; category?: string }) {
     const qp: Record<string, string> = {};
-    if (e.q) qp['q'] = e.q;
+    // A picked category suggestion filters by category; otherwise free-text q.
+    if (e.category) qp['category'] = e.category;
+    else if (e.q)   qp['q'] = e.q;
     if (e.location) qp['district'] = e.location;
     this.router.navigate(['/browse'], { queryParams: qp });
   }

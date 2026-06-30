@@ -7,7 +7,7 @@ import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { DISTRICTS } from '../../core/constants';
 import { CategoryService } from '../../core/services/category.service';
-import { ApiService, Provider, PaginatedResponse } from '../../core/services/api.service';
+import { ApiService, Provider } from '../../core/services/api.service';
 
 const PLACEHOLDERS = [
   'Search for Plumbers & Electricians', 'Search for Custom Cakes', 'Search for Yoga Classes',
@@ -83,7 +83,7 @@ const RECENT_LOC_KEY = 'nb_recent_locations';
             } @else {
               <!-- Category / service suggestions (DB categories first, matched text bolded) -->
               @for (s of filteredServices; track s.name) {
-                <div class="jd-item jd-sug" (click)="pickService(s.name)">
+                <div class="jd-item jd-sug" (click)="pickSuggestion(s)">
                   <i class="bi" [ngClass]="s.icon || 'bi-search'"></i>
                   <span><strong [innerHTML]="highlightHtml(s.name)"></strong><small>{{ s.category }}</small></span>
                 </div>
@@ -162,10 +162,16 @@ const RECENT_LOC_KEY = 'nb_recent_locations';
 })
 export class JdSearchBarComponent implements OnInit, OnDestroy {
   initialLocation = input<string>('');
-  searchSubmit = output<{ location: string; q: string }>();
+  searchSubmit = output<{ location: string; q: string; category?: string }>();
 
   location = '';
   q = '';
+  // When the user picks a DB-category suggestion (e.g. "Food & Catering") we
+  // emit it as a category filter rather than a free-text keyword — the label
+  // almost never appears in a provider's text fields, so a keyword search for
+  // it returns nothing. Reset on any keystroke so a later free-text search
+  // isn't wrongly scoped to a stale category.
+  private pickedCategorySlug = '';
   locOpen = signal(false);
   svcOpen = signal(false);
   listening = signal(false);
@@ -243,13 +249,13 @@ export class JdSearchBarComponent implements OnInit, OnDestroy {
   ];
 
   // DB categories take priority; static services fill remaining slots up to 8.
-  get filteredServices(): { name: string; category: string; icon?: string }[] {
+  get filteredServices(): { name: string; category: string; icon?: string; slug?: string }[] {
     const v = this.q.trim().toLowerCase();
     if (!v) return [];
 
     const catMatches = this.catSvc.cats()
       .filter(c => c.label.toLowerCase().includes(v))
-      .map(c => ({ name: c.label, category: 'Category', icon: c.icon }));
+      .map(c => ({ name: c.label, category: 'Category', icon: c.icon, slug: c.id }));
 
     const catNames = new Set(catMatches.map(c => c.name.toLowerCase()));
     const svcMatches = this.staticServices
@@ -268,6 +274,7 @@ export class JdSearchBarComponent implements OnInit, OnDestroy {
   // (client-side, reactive) and debounces a live /providers search (300ms).
   onQueryChange() {
     this.svcOpen.set(true);
+    this.pickedCategorySlug = '';   // typing invalidates a prior category pick
     clearTimeout(this.searchTimer);
     const q = this.q.trim();
     if (!q) { this.providerResults.set([]); this.searchingProviders.set(false); return; }
@@ -276,7 +283,7 @@ export class JdSearchBarComponent implements OnInit, OnDestroy {
   }
 
   private fetchProviders(q: string) {
-    this.api.get<PaginatedResponse<Provider>>('/providers', { search: q, limit: 3, sort: 'rating' }).subscribe({
+    this.api.searchProviders({ search: q, limit: 3, sort: 'rating' }).subscribe({
       next: res => {
         // Ignore stale responses if the query changed while in flight.
         if (this.q.trim() !== q) return;
@@ -322,14 +329,23 @@ export class JdSearchBarComponent implements OnInit, OnDestroy {
   }
 
   pickLocation(l: string) { this.location = l; this.locOpen.set(false); this.pushRecent(RECENT_LOC_KEY, l, this.recentLocations); }
-  pickService(s: string)  { this.q = s; this.svcOpen.set(false); this.go(); }
+  pickService(s: string)  { this.pickedCategorySlug = ''; this.q = s; this.svcOpen.set(false); this.go(); }
+
+  // A picked suggestion that is a DB category becomes a category filter; a
+  // service name (e.g. "Plumber") stays a free-text keyword search.
+  pickSuggestion(s: { name: string; slug?: string }) {
+    if (s.slug) { this.q = s.name; this.pickedCategorySlug = s.slug; this.svcOpen.set(false); this.go(); }
+    else        { this.pickService(s.name); }
+  }
 
   go() {
     const q = this.q.trim();
+    const category = this.pickedCategorySlug;
     if (q) this.pushRecent(RECENT_KEY, q, this.recentSearches);
     if (this.location.trim()) this.pushRecent(RECENT_LOC_KEY, this.location.trim(), this.recentLocations);
     this.svcOpen.set(false); this.locOpen.set(false);
-    this.searchSubmit.emit({ location: this.location.trim(), q });
+    this.searchSubmit.emit({ location: this.location.trim(), q, category: category || undefined });
+    this.pickedCategorySlug = '';
   }
 
   clearRecents() { localStorage.removeItem(RECENT_KEY); this.recentSearches.set([]); }
