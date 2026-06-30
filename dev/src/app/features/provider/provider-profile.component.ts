@@ -469,6 +469,7 @@ interface Review { id:string; name:string; initial:string; color:string; rating:
       grid-template-columns: 1fr 1fr;
       grid-template-rows: 1fr 1fr;
       gap: 3px;
+      height: 100%;
     }
     .pp-gal-img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform .25s; }
     .pp-gallery-main:hover .pp-gal-img,

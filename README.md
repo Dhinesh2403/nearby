@@ -21,10 +21,10 @@
 
 **Demo logins (staging):**
 
-| Role | Email | Password |
-|------|-------|----------|
-| Customer | `customer@test.com` | `Test@1234` |
-| Provider | `provider@test.com` | `Test@1234` |
+| Role | Mobile | Password |
+|------|--------|----------|
+| Customer | `9100000001` | `Test@1234` |
+| Provider | `9100000002` | `Test@1234` |
 
 ---
 
@@ -53,11 +53,5 @@
 
 Built by **Dhineshkumar** — a full-stack engineer who enjoys building real-world products end-to-end, from database schema and REST API design to UI and deployment. NearBy covers the complete lifecycle: auth, real-time messaging, file uploads, geospatial queries, an admin moderation system, SEO, and cloud CI/CD.
 
-<p>
-  <a href="mailto:dhineshdk024@gmail.com">
-    <img src="https://img.shields.io/badge/Email-D14836?style=for-the-badge&logo=gmail&logoColor=white" alt="Email" />
-  </a>
-  <a href="https://www.linkedin.com/in/dhineshkumara">
-    <img src="https://img.shields.io/badge/LinkedIn-0A66C2?style=for-the-badge&logo=linkedin&logoColor=white" alt="LinkedIn" />
-  </a>
-</p>
+[![Email](https://img.shields.io/badge/Email-D14836?style=for-the-badge&logo=gmail&logoColor=white)](mailto:dhineshdk024@gmail.com)
+[![LinkedIn](https://img.shields.io/badge/LinkedIn-0A66C2?style=for-the-badge&logo=linkedin&logoColor=white)](https://www.linkedin.com/in/dhineshkumara)
