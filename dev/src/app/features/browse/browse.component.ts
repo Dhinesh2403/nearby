@@ -175,8 +175,8 @@ import { ContactLoginModalComponent } from '../../shared/components/contact-logi
                         @for (s of p.skills.slice(0,3); track s) { <span class="jtag">{{ s }}</span> }
                       </div>
                     }
-                    <!-- action buttons (11.16) -->
-                    <div class="jactions">
+                    <!-- action buttons (11.16) — stop clicks bubbling to card routerLink -->
+                    <div class="jactions" (click)="$event.stopPropagation()">
                       @if (revealedPhones()[p._id]) {
                         <a class="jbtn jbtn-call" [href]="'tel:' + revealedPhones()[p._id]"><i class="bi bi-telephone-fill"></i>{{ revealedPhones()[p._id] }}</a>
                       } @else {
