@@ -1,7 +1,7 @@
 export const environment = {
   production: true,
-  apiUrl:    'https://nearbypro-mhjd.onrender.com/api',
-  socketUrl: 'https://nearbypro-mhjd.onrender.com',
+  apiUrl:    'https://api.nearbypro.online',
+  socketUrl: 'https://api.nearbypro.online',
   appName:   'NearbyPro',
   firebase: {
     apiKey: "AIzaSyBQeynUVee5L_4CrqfYgAmB-FRoQeMVaT4",
