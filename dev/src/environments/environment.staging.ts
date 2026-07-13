@@ -1,6 +1,6 @@
 export const environment = {
   production: true,
-  apiUrl: 'https://api.staging.nearbypro.online',
+  apiUrl: 'https://api.staging.nearbypro.online/api',
   socketUrl: 'https://api.staging.nearbypro.online',
   appName: 'NearbyPro',
   firebase: {
