@@ -46,8 +46,6 @@ npm-debug.log*
 Thumbs.db
 *.zip
 
-# ── Docs generated locally ─────────────────────────────────────
-docs/
 
 # ── IDE / tool state ───────────────────────────────────────────
 .allai/

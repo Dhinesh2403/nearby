@@ -28,6 +28,18 @@
 
 ---
 
+### 📸 Screenshots
+
+| Home | Browse |
+|---|---|
+| ![Home](docs/screenshots/home.png) | ![Browse](docs/screenshots/browse.png) |
+
+| Provider Profile | Real-time Chat |
+|---|---|
+| ![Provider](docs/screenshots/provider.png) | ![Chat](docs/screenshots/chat.png) |
+
+---
+
 ### ✨ Features
 
 - Browse local service providers by category and area
@@ -46,6 +58,47 @@
 **Frontend:** Angular 17 (standalone components, lazy loading), RxJS, Bootstrap 5, Socket.IO client, Firebase
 
 **Backend:** Node.js, Express, MongoDB + Mongoose, Socket.IO, JWT, bcrypt, Multer + Cloudinary, Firebase Admin
+
+**Testing & DevOps:** Playwright (E2E), GitHub Actions (CI/CD), Render, Docker
+
+---
+
+### 🧭 Architecture
+
+```mermaid
+flowchart LR
+  U[Angular 17 SPA / Capacitor app] -- REST + JWT --> API[Node.js + Express API]
+  U <-- Socket.IO chat --> API
+  U -- sign-in --> FB[Firebase Auth]
+  API --> DB[(MongoDB)]
+  API --> CL[Cloudinary images]
+  API --> FA[Firebase Admin]
+```
+
+---
+
+### 🚀 Run Locally
+
+**Prerequisites:** Node.js 22+, a MongoDB connection string (local or Atlas)
+
+```bash
+npm run install:all                       # installs root, server and client deps
+cp server/.env.example server/.env        # fill in MongoDB URI, JWT secrets, Cloudinary keys
+npm run seed                              # demo categories, providers and users
+npm run dev                               # API on :5000, web app on :4200
+```
+
+**End-to-end tests (Playwright):**
+
+```bash
+npx playwright test
+```
+
+---
+
+### ⚙️ CI/CD
+
+GitHub Actions runs backend and frontend CI on every push. The CD workflows deploy to separate **staging** and **production** environments on Render.
 
 ---
 
